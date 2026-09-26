@@ -8,6 +8,7 @@
 #include "configuration.h"
 #include "gps/RTC.h"
 #include "main.h"
+#include "mesh/MeshTypes.h"
 #include <Throttle.h>
 #include <string.h>
 
@@ -606,6 +607,51 @@ void MeshBeaconBroadcastModule::sendBeacon()
             applyTarget(p);
         }
     }
+}
+
+bool MeshBeaconBroadcastModule::sendBeaconTo(NodeNum dest, uint8_t channelIndex, uint8_t hopLimit, const char *message)
+{
+    if (!message || message[0] == '\0') {
+        LOG_WARN("Beacon: empty message, skip directed send");
+        return false;
+    }
+
+    meshtastic_MeshBeacon beacon = meshtastic_MeshBeacon_init_zero;
+    strncpy(beacon.message, message, sizeof(beacon.message) - 1);
+
+    uint8_t buf[meshtastic_MeshBeacon_size] = {};
+    pb_size_t size = (pb_size_t)pb_encode_to_bytes(buf, sizeof(buf), &meshtastic_MeshBeacon_msg, &beacon);
+    if (size == 0) {
+        LOG_WARN("Beacon: directed encode failed");
+        return false;
+    }
+
+    meshtastic_MeshPacket *p = allocDataPacket();
+    if (!p) {
+        LOG_WARN("Beacon: directed alloc failed");
+        return false;
+    }
+    memcpy(p->decoded.payload.bytes, buf, size);
+    p->decoded.payload.size = size;
+    p->decoded.portnum = meshtastic_PortNum_MESH_BEACON_APP;
+
+    p->to = dest;
+    p->from = nodeDB->getNodeNum();
+    p->channel = channelIndex;
+    // Unlike the periodic broadcast (zero-hopped to limit spam), a directed/channel send is
+    // meant to actually reach its destination, so the caller picks the hop limit explicitly
+    // rather than inheriting config.lora.hop_limit.
+    p->hop_limit = (hopLimit > HOP_MAX) ? HOP_MAX : hopLimit;
+    p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
+    p->want_ack = (dest != NODENUM_BROADCAST);
+    stampRxTime(p);
+
+    LOG_INFO("Beacon: directed MESH_BEACON_APP to=0x%08x ch=%u hops=%u msg='%.40s'", dest, channelIndex, p->hop_limit,
+             message);
+    if (router->send(p) == ERRNO_SHOULD_RELEASE) {
+        packetPool.release(p);
+    }
+    return true;
 }
 
 int32_t MeshBeaconBroadcastModule::runOnce()

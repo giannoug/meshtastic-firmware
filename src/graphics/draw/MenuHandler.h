@@ -53,6 +53,7 @@ class menuHandler
         KeyVerificationInit,
         KeyVerificationFinalPrompt,
         TraceRouteMenu,
+        SendBeaconMenu,
         ThrottleMessage,
         MessageResponseMenu,
         MessageViewModeMenu,
@@ -117,6 +118,7 @@ class menuHandler
     static void geofenceOptionsMenu();
     static void removeWaypointMenu();
     static void traceRouteMenu();
+    static void sendBeaconMenu();
     static void testMenu();
     static void numberTest();
     static void environmentTelemetryMenu();

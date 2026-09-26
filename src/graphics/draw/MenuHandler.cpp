@@ -34,6 +34,7 @@
 #include "modules/ExternalNotificationModule.h"
 #include "modules/GeofenceModule.h"
 #include "modules/KeyVerificationModule.h"
+#include "modules/MeshBeaconModule.h"
 #if HAS_TELEMETRY && HAS_SENSOR && !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR
 #include "modules/Telemetry/EnvironmentTelemetry.h"
 #endif
@@ -155,6 +156,82 @@ void launchReplyForMessage(const StoredMessage &message, bool freetext)
     } else {
         cannedMessageModule->LaunchWithDestination(peer);
     }
+}
+
+// --- "Send Beacon" wizard steps, chained via menuHandler::sendBeaconMenu() below --------------
+// dest/channelIndex/destLabel are threaded through by capture, exactly like the reply-thread
+// captures above; nothing here is stored across calls except the static option-label buffers
+// (matching the static optionsArray idiom the rest of this file uses for banner menus).
+
+// Final step: type the message, show a confirmation with the chosen params, then send.
+void beaconMessageStep(NodeNum dest, uint8_t channelIndex, uint8_t hopLimit, std::string destLabel)
+{
+    screen->showTextInput("Beacon Message", "", 300000,
+                          [dest, channelIndex, hopLimit, destLabel](const std::string &text) -> void {
+        if (text.empty()) {
+            return;
+        }
+        std::string preview = text.substr(0, 24);
+        if (text.size() > 24) {
+            preview += "...";
+        }
+        char summary[160];
+        snprintf(summary, sizeof(summary), "To: %s\nHops: %u\nMsg: %s", destLabel.c_str(), (unsigned)hopLimit,
+                 preview.c_str());
+        menuHandler::showConfirmationBanner(summary, [dest, channelIndex, hopLimit, text]() -> void {
+            if (meshBeaconBroadcastModule &&
+                meshBeaconBroadcastModule->sendBeaconTo(dest, channelIndex, hopLimit, text.c_str())) {
+                IF_SCREEN(screen->showSimpleBanner("Beacon\nSent", 3000));
+            } else {
+                IF_SCREEN(screen->showSimpleBanner("Beacon\nFailed", 3000));
+            }
+        });
+    });
+}
+
+// Pick a hop limit for this one packet - independent of config.lora.hop_limit.
+void beaconHopLimitStep(NodeNum dest, uint8_t channelIndex, std::string destLabel)
+{
+    screen->showNumberPicker("Hop Limit 0-7", 30000, 1, false, [dest, channelIndex, destLabel](uint32_t hopLimit) -> void {
+        beaconMessageStep(dest, channelIndex, (uint8_t)std::min<uint32_t>(hopLimit, HOP_MAX), destLabel);
+    });
+}
+
+// Pick a channel to broadcast the beacon on (destination becomes NODENUM_BROADCAST).
+void beaconChannelPicker()
+{
+    constexpr uint8_t maxOptions = 9; // "Back" + up to 8 channel table slots
+    static const char *optionsArray[maxOptions] = {"Back"};
+    static char nameBufs[maxOptions][24];
+    static uint8_t channelForOption[maxOptions] = {0};
+    int options = 1;
+
+    for (uint8_t i = 0; i < channels.getNumChannels() && options < maxOptions; i++) {
+        auto &ch = channels.getByIndex(i);
+        if (ch.role == meshtastic_Channel_Role_DISABLED) {
+            continue;
+        }
+        if (ch.settings.name[0]) {
+            snprintf(nameBufs[options], sizeof(nameBufs[options]), "%s", ch.settings.name);
+        } else {
+            snprintf(nameBufs[options], sizeof(nameBufs[options]), "Channel %u", (unsigned)i);
+        }
+        optionsArray[options] = nameBufs[options];
+        channelForOption[options] = i;
+        options++;
+    }
+
+    BannerOverlayOptions bannerOptions;
+    bannerOptions.message = "Beacon Channel";
+    bannerOptions.optionsArrayPtr = optionsArray;
+    bannerOptions.optionsCount = options;
+    bannerOptions.bannerCallback = [](int selected) -> void {
+        if (selected == 0) {
+            return;
+        }
+        beaconHopLimitStep(NODENUM_BROADCAST, channelForOption[selected], optionsArray[selected]);
+    };
+    screen->showOverlayBanner(bannerOptions);
 }
 
 } // namespace
@@ -1639,7 +1716,7 @@ void menuHandler::environmentTelemetrySourceMenu()
 
 void menuHandler::nodeListMenu()
 {
-    enum optionsNumbers { Back, NodePicker, TraceRoute, Verify, Reset, NodeNameLength, enumEnd };
+    enum optionsNumbers { Back, NodePicker, TraceRoute, Verify, SendBeacon, Reset, NodeNameLength, enumEnd };
     static const char *optionsArray[enumEnd] = {"Back"};
     static int optionsEnumArray[enumEnd] = {Back};
     int options = 1;
@@ -1650,6 +1727,9 @@ void menuHandler::nodeListMenu()
     optionsArray[options] = "Node Actions / Settings";
 #endif
     optionsEnumArray[options++] = NodePicker;
+
+    optionsArray[options] = "Send Beacon";
+    optionsEnumArray[options++] = SendBeacon;
 
     if (currentResolution != ScreenResolution::UltraLow) {
         optionsArray[options] = "Show Long/Short Name";
@@ -1666,6 +1746,9 @@ void menuHandler::nodeListMenu()
     bannerOptions.bannerCallback = [](int selected) -> void {
         if (selected == NodePicker) {
             menuQueue = NodePickerMenu;
+            screen->runNow();
+        } else if (selected == SendBeacon) {
+            menuQueue = SendBeaconMenu;
             screen->runNow();
         } else if (selected == Reset) {
             menuQueue = ResetNodeDbMenu;
@@ -2622,6 +2705,34 @@ void menuHandler::traceRouteMenu()
     });
 }
 
+void menuHandler::sendBeaconMenu()
+{
+    static const char *optionsArray[] = {"Back", "To a Node", "To a Channel"};
+    BannerOverlayOptions bannerOptions;
+    bannerOptions.message = "Send Beacon";
+    bannerOptions.optionsArrayPtr = optionsArray;
+    bannerOptions.optionsCount = 3;
+    bannerOptions.bannerCallback = [](int selected) -> void {
+        if (selected == 1) { // To a Node
+            screen->showNodePicker("Node to Beacon", 30000, [](uint32_t nodenum) -> void {
+                const auto *node = nodeDB->getMeshNode(nodenum);
+                std::string label;
+                if (node && nodeInfoLiteHasUser(node) && node->long_name[0]) {
+                    label = sanitizeString(node->long_name).substr(0, 15);
+                } else {
+                    char buf[20];
+                    snprintf(buf, sizeof(buf), "!%08x", (unsigned int)nodenum);
+                    label = buf;
+                }
+                beaconHopLimitStep(nodenum, channels.getPrimaryIndex(), label);
+            });
+        } else if (selected == 2) { // To a Channel
+            beaconChannelPicker();
+        }
+    };
+    screen->showOverlayBanner(bannerOptions);
+}
+
 void menuHandler::testMenu()
 {
 
@@ -3263,6 +3374,9 @@ void menuHandler::handleMenuSwitch(OLEDDisplay *display)
         break;
     case TraceRouteMenu:
         traceRouteMenu();
+        break;
+    case SendBeaconMenu:
+        sendBeaconMenu();
         break;
     case TestMenu:
         testMenu();

@@ -127,6 +127,13 @@ class MeshBeaconBroadcastModule : private MeshBeaconModule,
     // Mark the cached payload dirty (call after config change).
     void invalidateCache() { payloadCacheDirty = true; }
 
+    // Send a one-off MESH_BEACON_APP packet with a caller-supplied message to a specific
+    // destination (a NodeNum for unicast, or NODENUM_BROADCAST for a channel broadcast), on a
+    // caller-chosen channel and hop limit - independent of config.lora.hop_limit and of the
+    // periodic broadcast's hard-coded zero-hop behavior. Returns false if the message is empty
+    // or the packet couldn't be built.
+    bool sendBeaconTo(NodeNum dest, uint8_t channelIndex, uint8_t hopLimit, const char *message);
+
   protected:
     virtual bool handleReceivedProtobuf(const meshtastic_MeshPacket &, meshtastic_MeshBeacon *) override { return false; }
     virtual int32_t runOnce() override;
