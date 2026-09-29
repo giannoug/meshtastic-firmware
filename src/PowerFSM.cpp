@@ -70,23 +70,20 @@ static void t5BacklightWakeFromSleep()
     t5BacklightSetForcedBySleep(false);
 }
 
-static void t5BacklightOffForTimeout()
+static void t5UiGateEnterTimeout()
 {
-    t5BacklightSetForcedByTimeout(true);
-    t5TouchSetForcedByTimeout(true);
+    T5UiGate::enterTimeout();
 }
 
-// Mirror of t5BacklightOffForTimeout(): the user's own backlight and touch settings stay as they are
-static void t5BacklightOnAfterTimeout()
+static void t5UiGateUserWake()
 {
-    t5BacklightSetForcedByTimeout(false);
-    t5TouchSetForcedByTimeout(false);
+    T5UiGate::userWake();
 }
 #else
 static void t5BacklightOffForSleep() {}
 static void t5BacklightWakeFromSleep() {}
-static void t5BacklightOffForTimeout() {}
-static void t5BacklightOnAfterTimeout() {}
+static void t5UiGateEnterTimeout() {}
+static void t5UiGateUserWake() {}
 #endif
 
 static void sdsEnter()
@@ -235,7 +232,7 @@ static void darkEnter()
     if (screen)
         screen->setOn(false);
     // Screen timeout enters DARK; ensure backlight also turns off.
-    t5BacklightOffForTimeout();
+    t5UiGateEnterTimeout();
 }
 
 static void serialEnter()
@@ -249,7 +246,6 @@ static void serialEnter()
     if (screen) {
         screen->setOn(true);
     }
-    t5BacklightOnAfterTimeout();
 }
 
 static void serialExit()
@@ -269,7 +265,6 @@ static void powerEnter()
     } else {
         if (screen)
             screen->setOn(true);
-        t5BacklightOnAfterTimeout();
         setBluetoothEnableUnlessRestarting();
         // within enter() the function getState() returns the state we came from
     }
@@ -296,7 +291,6 @@ static void onEnter()
     LOG_POWERFSM("State: onEnter");
     if (screen)
         screen->setOn(true);
-    t5BacklightOnAfterTimeout();
     setBluetoothEnableUnlessRestarting();
 }
 
@@ -352,12 +346,13 @@ void PowerFSM_setup()
     powerFSM.add_transition(&stateNB, &stateNB, EVENT_PACKET_FOR_PHONE, NULL, "Received packet, resetting win wake");
 
     // Handle press events - note: we ignore button presses when in API mode
-    powerFSM.add_transition(&stateLS, &stateON, EVENT_PRESS, NULL, "Press");
-    powerFSM.add_transition(&stateNB, &stateON, EVENT_PRESS, NULL, "Press");
-    powerFSM.add_transition(&stateDARK, isPowered() ? &statePOWER : &stateON, EVENT_PRESS, NULL, "Press");
-    powerFSM.add_transition(&statePOWER, &statePOWER, EVENT_PRESS, NULL, "Press");
-    powerFSM.add_transition(&stateON, &stateON, EVENT_PRESS, NULL, "Press"); // reenter On to restart our timers
-    powerFSM.add_transition(&stateSERIAL, &stateSERIAL, EVENT_PRESS, NULL,
+    powerFSM.add_transition(&stateLS, &stateON, EVENT_PRESS, t5UiGateUserWake, "Press");
+    powerFSM.add_transition(&stateNB, &stateON, EVENT_PRESS, t5UiGateUserWake, "Press");
+    powerFSM.add_transition(&stateDARK, isPowered() ? &statePOWER : &stateON, EVENT_PRESS, t5UiGateUserWake, "Press");
+    powerFSM.add_transition(&statePOWER, &statePOWER, EVENT_PRESS, t5UiGateUserWake, "Press");
+    powerFSM.add_transition(&stateON, &stateON, EVENT_PRESS, t5UiGateUserWake,
+                            "Press"); // reenter On to restart our timers
+    powerFSM.add_transition(&stateSERIAL, &stateSERIAL, EVENT_PRESS, t5UiGateUserWake,
                             "Press"); // Allow button to work while in serial API
 
     // Handle critically low power battery by forcing deep sleep
@@ -377,11 +372,13 @@ void PowerFSM_setup()
     powerFSM.add_transition(&stateSERIAL, &stateSHUTDOWN, EVENT_SHUTDOWN, NULL, "Shutdown");
 
     // Inputbroker
-    powerFSM.add_transition(&stateLS, &stateON, EVENT_INPUT, NULL, "Input Device");
-    powerFSM.add_transition(&stateNB, &stateON, EVENT_INPUT, NULL, "Input Device");
-    powerFSM.add_transition(&stateDARK, &stateON, EVENT_INPUT, NULL, "Input Device");
-    powerFSM.add_transition(&stateON, &stateON, EVENT_INPUT, NULL, "Input Device");       // restarts the sleep timer
-    powerFSM.add_transition(&statePOWER, &statePOWER, EVENT_INPUT, NULL, "Input Device"); // restarts the sleep timer
+    powerFSM.add_transition(&stateLS, &stateON, EVENT_INPUT, t5UiGateUserWake, "Input Device");
+    powerFSM.add_transition(&stateNB, &stateON, EVENT_INPUT, t5UiGateUserWake, "Input Device");
+    powerFSM.add_transition(&stateDARK, &stateON, EVENT_INPUT, t5UiGateUserWake, "Input Device");
+    powerFSM.add_transition(&stateON, &stateON, EVENT_INPUT, t5UiGateUserWake,
+                            "Input Device"); // restarts the sleep timer
+    powerFSM.add_transition(&statePOWER, &statePOWER, EVENT_INPUT, t5UiGateUserWake,
+                            "Input Device"); // restarts the sleep timer
 
     powerFSM.add_transition(&stateDARK, &stateON, EVENT_BLUETOOTH_PAIR, NULL, "Bluetooth pairing");
     powerFSM.add_transition(&stateON, &stateON, EVENT_BLUETOOTH_PAIR, NULL, "Bluetooth pairing");
