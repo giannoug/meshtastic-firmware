@@ -334,7 +334,7 @@ void InkHUD::WindowManager::prevApplet()
 }
 
 // Show a specific applet on the focused tile, or focus the tile where it is already shown.
-bool InkHUD::WindowManager::showApplet(uint8_t appletIndex)
+bool InkHUD::WindowManager::showApplet(uint8_t appletIndex, EInk::UpdateTypes updateType, bool all)
 {
     if (appletIndex >= inkhud->userApplets.size())
         return false;
@@ -350,7 +350,7 @@ bool InkHUD::WindowManager::showApplet(uint8_t appletIndex)
             refocusTile();
             if (!settings->optionalMenuItems.nextTile)
                 userTiles.at(settings->userTiles.focused)->requestHighlight();
-            inkhud->forceUpdate(EInk::UpdateTypes::FAST);
+            inkhud->forceUpdate(updateType, all);
             return true;
         }
     }
@@ -364,7 +364,7 @@ bool InkHUD::WindowManager::showApplet(uint8_t appletIndex)
     focused->assignApplet(target);
     target->bringToForeground();
     settings->userTiles.displayedUserApplet[settings->userTiles.focused] = appletIndex;
-    inkhud->forceUpdate(EInk::UpdateTypes::FAST);
+    inkhud->forceUpdate(updateType, all);
     return true;
 }
 

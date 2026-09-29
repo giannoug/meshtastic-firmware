@@ -93,7 +93,8 @@ class InkHUD
     void closeKeyboard();
     void nextTile();
     void prevTile();
-    bool showApplet(uint8_t appletIndex);
+    bool showApplet(uint8_t appletIndex, Drivers::EInk::UpdateTypes updateType = Drivers::EInk::UpdateTypes::FAST,
+                    bool all = false);
     bool selectTileAt(uint16_t x, uint16_t y);
     void rotate();
     void rotateJoystick(uint8_t angle = 1); // rotate 90 deg by default

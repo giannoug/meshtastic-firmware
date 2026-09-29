@@ -38,7 +38,10 @@ class WindowManager
     void closeKeyboard();
     void nextApplet();
     void prevApplet();
-    bool showApplet(uint8_t appletIndex);
+    // Callers which are replacing the whole screen can ask for a complete redraw, and can leave the update type
+    // UNSPECIFIED so that DisplayHealth still gets to promote it to FULL. The defaults are the historic behaviour.
+    bool showApplet(uint8_t appletIndex, Drivers::EInk::UpdateTypes updateType = Drivers::EInk::UpdateTypes::FAST,
+                    bool all = false);
     void rotate();
     void toggleBatteryIcon();
 

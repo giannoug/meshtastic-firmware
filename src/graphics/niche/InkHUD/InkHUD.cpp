@@ -422,9 +422,9 @@ void InkHUD::InkHUD::prevTile()
     windowManager->prevTile();
 }
 
-bool InkHUD::InkHUD::showApplet(uint8_t appletIndex)
+bool InkHUD::InkHUD::showApplet(uint8_t appletIndex, EInk::UpdateTypes updateType, bool all)
 {
-    return windowManager->showApplet(appletIndex);
+    return windowManager->showApplet(appletIndex, updateType, all);
 }
 
 bool InkHUD::InkHUD::selectTileAt(uint16_t x, uint16_t y)
