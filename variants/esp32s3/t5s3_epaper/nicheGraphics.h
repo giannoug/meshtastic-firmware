@@ -131,19 +131,22 @@ void setupNicheGraphics()
 #else
     buttons->setWiring(0, BUTTON_PIN);
 #endif
+    // Short press is the T5 Home action, or nothing at all when it is the press that woke the display.
+    // Long press has no production UI action: the stock applet cycling and the shared InkHUD Menu are
+    // not user-facing on T5.
 #ifdef T5_INKHUD_SCREENSHOT
     // The screenshot chord consumes its BOOT press
-    buttons->setHandlerShortPress(0, [inkhud]() {
+    buttons->setHandlerShortPress(0, []() {
         if (!T5Screenshot::swallowBoot())
-            inkhud->shortpress();
+            t5BootShortPress();
     });
-    buttons->setHandlerLongPress(0, [inkhud]() {
+    buttons->setHandlerLongPress(0, []() {
         if (!T5Screenshot::swallowBoot())
-            inkhud->longpress();
+            t5BootLongPress();
     });
 #else
-    buttons->setHandlerShortPress(0, [inkhud]() { inkhud->shortpress(); });
-    buttons->setHandlerLongPress(0, [inkhud]() { inkhud->longpress(); });
+    buttons->setHandlerShortPress(0, []() { t5BootShortPress(); });
+    buttons->setHandlerLongPress(0, []() { t5BootLongPress(); });
 #endif
 
     buttons->start();

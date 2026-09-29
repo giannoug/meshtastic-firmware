@@ -93,6 +93,12 @@ bool claimWake();
 void t5SetHomeCapButtonEventsEnabled(bool enabled);
 
 #ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
+// BOOT button. Short press is the one T5 Home action, unless the press is what woke the display, in
+// which case it is consumed. Long press has no production UI action: it never opens the shared InkHUD
+// Menu and never cycles applets.
+void t5BootShortPress();
+void t5BootLongPress();
+
 // InkHUD Carry (portrait, 508x928) / Console (landscape, 928x508) mode. Value is the InkHUD rotation.
 // Console uses rotation 0 (not 2) so the side key sits on the right edge.
 enum class T5Mode : uint8_t {

@@ -181,9 +181,12 @@ void t5ToggleMode()
     t5SetMode(t5CurrentMode() == T5Mode::CARRY ? T5Mode::CONSOLE : T5Mode::CARRY);
 }
 
-// Capacitive Home: temporary system UI takes the press through the shared EXIT path, an external notification is
-// silenced in place, otherwise T5 Home. Runs inside GT911 polling, so only asynchronous requests here
-static void t5HomeKey()
+// The one T5 Home action, shared by the capacitive Home key and a short BOOT press. Temporary system UI
+// takes the press through the shared EXIT path and one layer is peeled, an external notification is
+// silenced in place, otherwise T5 Home. It never confirms anything, and it never cycles applets.
+// Runs inside GT911 polling when the touch key fires, so only asynchronous requests here.
+// Callers deliver the user-input power event themselves, before deciding whether to call this at all.
+static void t5HomeAction()
 {
     using namespace NicheGraphics::InkHUD;
     InkHUD *inkhud = InkHUD::getInstance();
@@ -192,8 +195,6 @@ static void t5HomeKey()
         return;
     }
 
-    // What exitShort() does before its App Switcher fallback
-    powerFSM.trigger(EVENT_INPUT);
     playChirp();
     if (moduleConfig.external_notification.enabled && externalNotificationModule->nagging()) {
         externalNotificationModule->stopNow();
@@ -205,6 +206,31 @@ static void t5HomeKey()
         return; // Already there: no refresh
     if (!inkhud->showApplet(home))
         inkhud->openAppSwitcher(); // Defensive: Home unavailable, still a way out
+}
+
+// Capacitive Home key
+static void t5HomeKey()
+{
+    powerFSM.trigger(EVENT_INPUT);
+    if (T5UiGate::claimWake())
+        return; // This press only woke the display
+    t5HomeAction();
+}
+
+void t5BootShortPress()
+{
+    // TwoButton has already delivered EVENT_PRESS, at button-down
+    if (T5UiGate::claimWake())
+        return; // This press only woke the display
+    t5HomeAction();
+}
+
+void t5BootLongPress()
+{
+    // No production UI action, by design. TwoButton's EVENT_PRESS has already counted the press as user
+    // activity, so the display still wakes and the screen timer still restarts; claim that wake so it is
+    // not left for a later press to consume.
+    (void)T5UiGate::claimWake();
 }
 #endif // MESHTASTIC_INCLUDE_NICHE_GRAPHICS
 
@@ -370,6 +396,9 @@ class SideKeyInterruptThread : public concurrency::OSThread
                 if (!longPressFired && (uint32_t)(now - pressStartMs) >= LONG_PRESS_MIN_MS &&
                     (uint32_t)(now - lastActionMs) >= ACTION_COOLDOWN_MS) {
                     powerFSM.trigger(EVENT_PRESS); // User activity, like the short press
+                    // A long press always toggles the light, waking or not; claim so the wake is not
+                    // left for an unrelated later press to consume
+                    (void)T5UiGate::claimWake();
                     t5BacklightToggleUser();
                     longPressFired = true;
                     lastActionMs = now;
@@ -380,11 +409,10 @@ class SideKeyInterruptThread : public concurrency::OSThread
             // Released: if long-press already fired, do nothing. Otherwise classify short press.
             const uint32_t heldMs = now - pressStartMs;
             if (!longPressFired && heldMs >= SHORT_PRESS_MIN_MS && (uint32_t)(now - lastActionMs) >= ACTION_COOLDOWN_MS) {
-                // A press while the screen timeout gates touch only wakes. Snapshot first: EVENT_PRESS leaves DARK,
-                // which clears that gate. Without the event PowerFSM stays DARK and re-applies the gate on its next pass
-                const bool wake = t5TouchIsForcedByTimeout();
+                // A press which woke the display only wakes. Without the event PowerFSM stays DARK and
+                // re-applies the gate on its next pass, so the event goes first and the wake is claimed after.
                 powerFSM.trigger(EVENT_PRESS);
-                if (!wake) {
+                if (!T5UiGate::claimWake()) {
                     toggleTouchInputEnabled();
                 }
                 lastActionMs = now;
