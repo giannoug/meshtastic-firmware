@@ -84,7 +84,7 @@ void InkHUD::T5HomeApplet::begin()
     const int8_t index = indexOf("Home");
     if (!hud->userApplets[index]->isForeground()) {
         saved.userTiles.focused = 0;
-        hud->showApplet(index);
+        hud->showApplet(index, EInk::UpdateTypes::UNSPECIFIED, true);
     }
 
     SeenTracker *tracker = new SeenTracker;
@@ -519,7 +519,7 @@ void InkHUD::T5HomeApplet::openApplet(const std::string &name)
 {
     const int8_t index = indexOf(name.c_str());
     if (index >= 0)
-        inkhud->showApplet(index); // Ignores inactive applets, without a refresh
+        inkhud->showApplet(index, EInk::UpdateTypes::UNSPECIFIED, true); // Ignores inactive applets, without a refresh
 }
 
 void InkHUD::T5HomeApplet::openLatest()

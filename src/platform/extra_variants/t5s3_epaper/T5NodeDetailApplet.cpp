@@ -24,7 +24,7 @@ bool InkHUD::T5NodeDetailApplet::open(NodeNum num)
     if (i < 0 || !nodeDB->getMeshNode(num))
         return false;
     static_cast<T5NodeDetailApplet *>(hud->userApplets[i])->node = num;
-    return hud->showApplet(i);
+    return hud->showApplet(i, EInk::UpdateTypes::UNSPECIFIED, true);
 }
 
 // Live while shown: the node's own packets change its last heard, signal and SNR / RSSI facts
@@ -198,7 +198,7 @@ bool InkHUD::T5NodeDetailApplet::onTouchPoint(uint16_t x, uint16_t y, bool longP
             target = destinationApplet(MAP); // Opens as the map composes itself: nothing public centres it on this node
     }
     if (target >= 0)
-        inkhud->showApplet(target);
+        inkhud->showApplet(target, EInk::UpdateTypes::UNSPECIFIED, true);
 
     // Consume every tap: the button fallback would cycle applets
     return true;

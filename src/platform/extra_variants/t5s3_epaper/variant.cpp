@@ -204,7 +204,7 @@ static void t5HomeAction()
     const int8_t home = T5Applet::indexOf("Home");
     if (home >= 0 && inkhud->getActiveApplet() == inkhud->userApplets[home])
         return; // Already there: no refresh
-    if (!inkhud->showApplet(home))
+    if (!inkhud->showApplet(home, NicheGraphics::Drivers::EInk::UpdateTypes::UNSPECIFIED, true))
         inkhud->openAppSwitcher(); // Defensive: Home unavailable, still a way out
 }
 
@@ -527,7 +527,11 @@ SideKeyInterruptThread *sideKeyThread = nullptr;
 #endif
 
 #ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
-void refreshTouchIndicatorInInkHUD(bool async = true)
+// The band lives in the nav slot, so a change to it is a change to the frame.
+// Timeout keeps the explicit FAST that TouchStatus has always used; wake asks for UNSPECIFIED so that
+// DisplayHealth gets to promote the reconciling full-frame render to FULL.
+void refreshTouchIndicatorInInkHUD(
+    NicheGraphics::Drivers::EInk::UpdateTypes type = NicheGraphics::Drivers::EInk::UpdateTypes::FAST, bool async = true)
 {
     auto *inkhud = NicheGraphics::InkHUD::InkHUD::getInstance();
     NicheGraphics::InkHUD::SystemApplet *touchStatus = nullptr;
@@ -546,7 +550,8 @@ void refreshTouchIndicatorInInkHUD(bool async = true)
     }
 
     // Re-render all applets so touch-status visibility changes are immediately reflected.
-    inkhud->forceUpdate(NicheGraphics::Drivers::EInk::UpdateTypes::FAST, true, async);
+    // While the gate holds the image, the Renderer ignores the render-all and only the band is drawn.
+    inkhud->forceUpdate(type, true, async);
 }
 #endif
 
@@ -608,7 +613,11 @@ void t5TouchSetForcedByTimeout(bool forced)
 
 #ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
     if (!touchLightSleepActive) {
-        refreshTouchIndicatorInInkHUD();
+        // Waking reconciles the snapshot with live state: one complete logical frame, requested as an
+        // ordinary update so DisplayHealth chooses the waveform. Never an explicit FAST, which would
+        // bypass promotion. Entering the timeout only adds the band, in TouchStatus' usual FAST budget.
+        refreshTouchIndicatorInInkHUD(forced ? NicheGraphics::Drivers::EInk::UpdateTypes::FAST
+                                             : NicheGraphics::Drivers::EInk::UpdateTypes::UNSPECIFIED);
         touchIndicatorRefreshPending = false;
     }
 #endif

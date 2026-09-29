@@ -139,7 +139,7 @@ bool InkHUD::T5Applet::handleNavTap(uint16_t x, uint16_t y)
         // The screen already shown stays put, without a refresh
         const int8_t target = destinationApplet(d);
         if (target >= 0 && !inkhud->userApplets[target]->isForeground())
-            inkhud->showApplet(target);
+            inkhud->showApplet(target, EInk::UpdateTypes::UNSPECIFIED, true);
         break;
     }
     }
