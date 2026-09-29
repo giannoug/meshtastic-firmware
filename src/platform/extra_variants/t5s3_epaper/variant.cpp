@@ -712,13 +712,10 @@ struct TouchDeepSleepObserver {
 struct TouchLightSleepObserver {
     int onLightSleep(void *)
     {
+        // No render here. Light sleep is only ever reached from the timeout gate, so the band is already
+        // on the panel and the image below it is a snapshot; entering sleep changes neither.
+        // InkHUD::Events::beforeLightSleep still waits out any update already in flight.
         touchLightSleepActive = true;
-#ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
-        // Render touch-off overlay before sleeping so user sees touch is unavailable.
-        touchIndicatorRefreshPending = true;
-        refreshTouchIndicatorInInkHUD(false);
-        touchIndicatorRefreshPending = false;
-#endif
         return 0;
     }
 
@@ -742,13 +739,8 @@ struct TouchLightSleepEndObserver {
         }
 
         touchResumeAtMs = Time::skipZero(Time::getMillis());
-        touchIndicatorRefreshPending = !isTouchInputEnabled();
-#ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
-        // Clear sleep-time touch overlay after wake.
-        touchIndicatorRefreshPending = true;
-        refreshTouchIndicatorInInkHUD();
-        touchIndicatorRefreshPending = false;
-#endif
+        // No render here either. Leaving light sleep is not a wake: the timeout gate is still set and
+        // the band still reads ASLEEP, so there is nothing new to draw.
         return 0;
     }
 

@@ -107,6 +107,10 @@ void setupNicheGraphics()
     // Enable reusable InkHUD touch status indicator for this touch-capable board.
     inkhud->setTouchEnabledProvider(isTouchInputEnabled);
 
+    // Hold the image while the display timeout has the UI gated: the base screen is a snapshot until
+    // the user wakes the device. Keyed on the timeout gate alone - a manual TOUCH OFF keeps rendering.
+    inkhud->setRenderHoldProvider(T5UiGate::snapshotHeld);
+
     // Start running InkHUD
     inkhud->begin();
     InkHUD::T5HomeApplet::begin(); // Saved settings loaded by begin() override the defaults above
