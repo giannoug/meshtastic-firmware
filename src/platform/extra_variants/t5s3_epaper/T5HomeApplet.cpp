@@ -72,6 +72,15 @@ void InkHUD::T5HomeApplet::begin()
         if (!hud->userApplets[i]->isActive())
             hud->userApplets[i]->activate();
     }
+    // Autoshow is a stock behaviour T5 does not use: the foreground screen changes only when the user
+    // navigates. The defaults in setupNicheGraphics() are overridden by settings saved before that was
+    // true, and by anything the shared Menu set, so clear it here where saved settings are already loaded.
+    for (const char *name : {"DMs", "Channel 0"}) {
+        const int8_t i = indexOf(name);
+        if (i >= 0)
+            saved.userApplets.autoshow[i] = false;
+    }
+
     const int8_t index = indexOf("Home");
     if (!hud->userApplets[index]->isForeground()) {
         saved.userTiles.focused = 0;

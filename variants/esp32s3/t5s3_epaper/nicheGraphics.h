@@ -90,9 +90,10 @@ void setupNicheGraphics()
 
     // Pick applets
     // Note: order of applets determines priority of "auto-show" feature
-    inkhud->addApplet("All Messages", new InkHUD::AllMessageApplet, false, false);      // Not Active, not autoshown
-    inkhud->addApplet("DMs", new InkHUD::DMApplet, true, true);                         // Activated, Autoshown
-    inkhud->addApplet("Channel 0", new InkHUD::ThreadedMessageApplet(0), true, true);   // Activated, Autoshown
+    inkhud->addApplet("All Messages", new InkHUD::AllMessageApplet, false, false); // Not Active, not autoshown
+    // No stock applet autoshows on T5: the foreground screen changes only when the user navigates.
+    inkhud->addApplet("DMs", new InkHUD::DMApplet, true, false);                        // Activated, not autoshown
+    inkhud->addApplet("Channel 0", new InkHUD::ThreadedMessageApplet(0), true, false);  // Activated, not autoshown
     inkhud->addApplet("Channel 1", new InkHUD::ThreadedMessageApplet(1), false, false); // Not Active, not autoshown
     inkhud->addApplet("Positions", new InkHUD::PositionsApplet, true, false);           // Activated, not autoshown
     inkhud->addApplet("Waypoints", new InkHUD::WaypointListApplet, false, false);       // Not Active, not autoshown
