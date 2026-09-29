@@ -15,6 +15,7 @@
 #include "meshUtils.h"
 #include "sleep.h"
 #include "touch/TouchDrvGT911.hpp"
+#include <atomic>
 #include <cstring>
 
 #ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
@@ -235,7 +236,11 @@ volatile bool touchDrainPending = false;
 // 0-check by the settle time, where a stored deadline would block for up to half a wrap cycle.
 constexpr uint32_t TOUCH_RESUME_BLOCK_MS = 150;
 volatile uint32_t touchResumeAtMs = 0;
-volatile uint32_t touchStateEpoch = 1;
+// Set each time the timeout gate is released, i.e. once per actual wake. Claimed by the input path
+// which caused that wake, so the waking press is consumed instead of also acting. Written from the
+// PowerFSM action and read from the side-key thread and the BOOT input path, so a real atomic: the
+// claim has to be one indivisible test-and-clear, and ++ on a volatile is not a read-modify-write.
+std::atomic<bool> wakeUnclaimed{false};
 volatile bool homeCapButtonEventsEnabled = false;
 #if HAS_SCREEN
 uint32_t lastTouchIndicatorMs = 0;
@@ -559,10 +564,11 @@ void t5TouchSetForcedByTimeout(bool forced)
     }
 
     touchForcedByTimeout = forced;
-    touchStateEpoch++;
     touchIndicatorRefreshPending = true;
-    if (!forced)
+    if (!forced) {
         touchDrainPending = true;
+        wakeUnclaimed = true; // A wake, for the press that caused it to claim
+    }
 
     if (forced) {
         // Timeout only gates touch input in software. Avoid GT911 I2C here because
@@ -585,6 +591,32 @@ bool t5TouchIsForcedByTimeout()
     return touchForcedByTimeout;
 }
 
+namespace T5UiGate
+{
+bool snapshotHeld()
+{
+    return touchForcedByTimeout;
+}
+
+void enterTimeout()
+{
+    t5BacklightSetForcedByTimeout(true);
+    t5TouchSetForcedByTimeout(true);
+}
+
+// Mirror of enterTimeout(): the user's own backlight and touch settings stay as they are
+void userWake()
+{
+    t5BacklightSetForcedByTimeout(false);
+    t5TouchSetForcedByTimeout(false);
+}
+
+bool claimWake()
+{
+    return wakeUnclaimed.exchange(false);
+}
+} // namespace T5UiGate
+
 void t5SetHomeCapButtonEventsEnabled(bool enabled)
 {
     homeCapButtonEventsEnabled = enabled;
@@ -604,7 +636,6 @@ void setTouchInputEnabled(bool enabled, bool showIndicator)
 
     LOG_DEBUG("touchscreen1: setTouchInputEnabled %d -> %d (showIndicator=%d)", touchInputEnabled, enabled, showIndicator);
     touchInputEnabled = enabled;
-    touchStateEpoch++;
 
     if (enabled) {
         touchNeedsWake = touchControllerReady;
@@ -682,7 +713,6 @@ struct TouchLightSleepEndObserver {
             touchNeedsWake = false;
         }
 
-        touchStateEpoch++;
         touchResumeAtMs = Time::skipZero(Time::getMillis());
         touchIndicatorRefreshPending = !isTouchInputEnabled();
 #ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
@@ -704,11 +734,11 @@ bool readTouch(int16_t *x, int16_t *y)
 #ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
     constexpr uint32_t TOUCH_WAKE_SUPPRESS_MS = 60;
     static uint32_t suppressFromMs = 0; // 0 = not suppressing, same reading as touchResumeAtMs
-    static uint32_t seenTouchStateEpoch = 0;
+    static bool seenTouchEnabled = false;
 
     // Reset transient gesture helpers whenever touch mode changes.
-    if (seenTouchStateEpoch != touchStateEpoch) {
-        seenTouchStateEpoch = touchStateEpoch;
+    if (const bool enabled = isTouchInputEnabled(); seenTouchEnabled != enabled) {
+        seenTouchEnabled = enabled;
         suppressFromMs = 0;
     }
 
@@ -835,7 +865,6 @@ void lateInitVariant()
         touchInputEnabled = true;
         touchForcedByTimeout = false;
         touchLightSleepActive = false;
-        touchStateEpoch++;
         touchDeepSleepObserver.observer.observe(&notifyDeepSleep);
 #ifdef ARCH_ESP32
         touchLightSleepObserver.observer.observe(&notifyLightSleep);

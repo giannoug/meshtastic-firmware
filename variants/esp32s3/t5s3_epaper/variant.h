@@ -51,6 +51,44 @@ void t5BacklightSetForcedBySleep(bool forced);
 void t5TouchSetForcedByTimeout(bool forced);
 bool t5TouchIsForcedByTimeout();
 
+// The authoritative T5 UI gate.
+//
+// The display timeout is the only thing that freezes the T5 UI, and this is the only place that says so.
+// It is deliberately NOT any of these, and must never be inferred from them:
+//   - PowerFSM state: an incoming message, a BLE pairing request or a USB connect all leave DARK
+//     without the user having touched the device
+//   - the manual touch preference (TOUCH OFF): the user's own setting, and the app keeps rendering live
+//   - the light-sleep touch gate: a consequence of the timeout gate, not a second state
+//   - the front-light user preference: independent of both
+//
+// The touch timeout gate stays the single underlying truth; these are names for it, not a second flag.
+namespace T5UiGate
+{
+// Snapshot semantics are in force: the base screen is frozen from the moment the gate was set.
+bool snapshotHeld();
+
+// The display timeout gated the UI. Called from PowerFSM's DARK entry action.
+void enterTimeout();
+
+// Real user input reached the device. Called only from PowerFSM's EVENT_PRESS / EVENT_INPUT transition
+// actions, never from a state entry: entering ON is not by itself evidence that the user did anything.
+void userWake();
+
+// Claim the most recent wake, if no input path has claimed it yet.
+//
+// userWake() records a wake each time it actually releases the gate, which only ever happens as the
+// direct result of physical user input. Every T5 press path calls this straight after delivering its
+// power event: true means this press is the one that woke the display, so the press only wakes and is
+// not also acted on. One atomic test-and-clear, so exactly one press is ever consumed per wake - no
+// timing window, no PowerFSM state read back afterwards, and a slow e-paper refresh in between cannot
+// change the answer.
+//
+// Every path that can wake a gated T5 must call this, so that a wake is always claimed by the press
+// which caused it and never by an unrelated later press. Those paths are the side key and BOOT; touch
+// and the capacitive Home key are gated off while asleep and cannot wake the device at all.
+bool claimWake();
+} // namespace T5UiGate
+
 // Gate GT911 capacitive-home callback delivery until InkHUD startup is complete.
 void t5SetHomeCapButtonEventsEnabled(bool enabled);
 
