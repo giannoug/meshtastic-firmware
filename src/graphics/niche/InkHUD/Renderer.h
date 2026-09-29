@@ -83,6 +83,7 @@ class Renderer : protected concurrency::OSThread
 
     SystemApplet *lockRendering = nullptr; // Render this applet *only*
     SystemApplet *lockRequests = nullptr;  // Honor update requests from this applet *only*
+    bool held = false;                     // Variant is holding the image as a snapshot: skip user applets
 
     bool requested = false;
     bool forced = false;

@@ -186,6 +186,19 @@ bool InkHUD::InkHUD::isTouchEnabled() const
     return touchEnabledProvider();
 }
 
+void InkHUD::InkHUD::setRenderHoldProvider(RenderHoldProvider provider)
+{
+    renderHoldProvider = provider;
+}
+
+bool InkHUD::InkHUD::isRenderHeld() const
+{
+    if (!renderHoldProvider)
+        return false;
+
+    return renderHoldProvider();
+}
+
 // Call this when your user button gets a short press
 // Should be connected to an input source in nicheGraphics.h (NicheGraphics::Inputs::TwoButton?)
 void InkHUD::InkHUD::shortpress()

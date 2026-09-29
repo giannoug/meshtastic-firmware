@@ -40,6 +40,7 @@ class InkHUD
 {
   public:
     using TouchEnabledProvider = bool (*)();
+    using RenderHoldProvider = bool (*)();
 
     static InkHUD *getInstance(); // Access to this singleton class
 
@@ -57,6 +58,14 @@ class InkHUD
     void setTouchEnabledProvider(TouchEnabledProvider provider);
     bool hasTouchEnabledProvider() const;
     bool isTouchEnabled() const;
+
+    // Optional render hold, for variants which want to freeze the UI while the display sleeps.
+    // While the provider returns true the current image is retained as a snapshot: user applets do not
+    // render, their update requests stay pending, autoshow does not run, and nothing clears the
+    // framebuffer. System applets still render, as layers drawn over the held image. Without a provider
+    // there is no hold, and rendering behaves exactly as it always has.
+    void setRenderHoldProvider(RenderHoldProvider provider);
+    bool isRenderHeld() const;
 
     // Handle user-button press
     // - connected to an input source, in variant nicheGraphics.h
@@ -145,6 +154,7 @@ class InkHUD
     Renderer *renderer = nullptr;           // Co-ordinate display updates
     WindowManager *windowManager = nullptr; // Multiplexing of applets
     TouchEnabledProvider touchEnabledProvider = nullptr;
+    RenderHoldProvider renderHoldProvider = nullptr;
 };
 
 } // namespace NicheGraphics::InkHUD
