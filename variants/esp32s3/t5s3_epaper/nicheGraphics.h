@@ -27,6 +27,7 @@ This is driven via the FastEPD library through the NicheGraphics ED047TC1 driver
 #include "T5ComposeTask.h"
 #include "T5ConversationApplet.h"
 #include "T5HomeApplet.h"
+#include "T5MapApplet.h"
 #include "T5MessageModel.h"
 #include "T5MessagesApplet.h"
 #include "T5NodeDetailApplet.h"
@@ -133,6 +134,12 @@ void setupNicheGraphics()
                       false); // Activated, not autoshown
     inkhud->addApplet("Conversation", new InkHUD::T5ConversationApplet, true,
                       false); // Activated, not autoshown
+    // Appended for the same reason again: the native map takes slot 15 of 16, and
+    // no saved index moves. The shared Positions / Waypoints / Favorites Map
+    // applets stay registered but inactive, so they keep their indices while no
+    // user-facing route can reach them (Map 12, D6).
+    inkhud->addApplet("Map", new InkHUD::T5MapApplet, true,
+                      false); // Activated, not autoshown
 
     // Touch-capable board: InkHUD needs to know whether touch is live. The shared TOUCH OFF strip it
     // would otherwise raise is suppressed below - the T5 lock band replaces it.
@@ -154,6 +161,7 @@ void setupNicheGraphics()
                                      // the defaults above
     InkHUD::T5ComposeTask::begin();  // Before the system layer: a task's input
                                      // claim is checked first (System UI 04)
+    InkHUD::T5MapApplet::begin();    // After begin(): needs its registered index
     InkHUD::T5SystemLayer::begin();  // Last: the system layer draws over every
                                      // other surface
 #ifdef T5_INKHUD_SCREENSHOT

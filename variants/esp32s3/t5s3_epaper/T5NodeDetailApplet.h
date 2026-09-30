@@ -23,7 +23,9 @@ class T5NodeDetailApplet : public T5Applet, public MeshModule
   public:
     T5NodeDetailApplet() : MeshModule("T5NodeDetailApplet") { hideFromAppSwitcher = true; } // Drill-down from Nodes
 
-    static bool open(NodeNum num); // Show a nodeDB node. False, and nothing shown, if that isn't possible
+    // Show a nodeDB node. The origin is where Back returns: NODES for a Nodes row, MAP for the map's
+    // DETAIL. False, and nothing shown, if that isn't possible.
+    static bool open(NodeNum num, Destination from = NODES);
 
     void onRender(bool full) override;
     bool onTouchPoint(uint16_t x, uint16_t y, bool longPress) override;

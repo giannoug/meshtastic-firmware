@@ -16,13 +16,15 @@ constexpr const char *BACK = "\x8B "; // Win-1253 single left angle quote: parse
 constexpr int16_t PLOT_RADIUS = 64;   // One node gives direction, not scale: the marker sits at a fixed distance
 } // namespace
 
-bool InkHUD::T5NodeDetailApplet::open(NodeNum num)
+bool InkHUD::T5NodeDetailApplet::open(NodeNum num, Destination from)
 {
     InkHUD *hud = InkHUD::getInstance();
     const int8_t i = indexOf("Node Detail");
     if (i < 0 || !nodeDB->getMeshNode(num))
         return false;
-    static_cast<T5NodeDetailApplet *>(hud->userApplets[i])->node = num;
+    T5NodeDetailApplet *detail = static_cast<T5NodeDetailApplet *>(hud->userApplets[i]);
+    detail->node = num;
+    detail->origin = from;
     return hud->showApplet(i, EInk::UpdateTypes::UNSPECIFIED, true);
 }
 

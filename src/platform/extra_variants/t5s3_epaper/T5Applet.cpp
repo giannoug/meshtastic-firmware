@@ -82,14 +82,14 @@ std::string InkHUD::T5Applet::powerLabel(bool console, bool withVoltage)
     return join("BATT " + percent, volts);
 }
 
-// Home, Messages and Nodes have a native T5 screen. The other three keep their
-// cell, struck through, until their T5 destinations are built: pointing them at
-// a stock InkHUD applet would drop the user into a surface with no T5
+// Home, Messages, Nodes and Map have a native T5 screen. The other two keep
+// their cell, struck through, until their T5 destinations are built: pointing
+// them at a stock InkHUD applet would drop the user into a surface with no T5
 // navigation and no way back (Redesign 8.4; Apps 05 retires the App Switcher on
 // T5, Menu Settings 00 the shared menu).
 int8_t InkHUD::T5Applet::destinationApplet(Destination d)
 {
-    const char *name = d == HOME ? "Home" : d == NODES ? "Nodes" : d == MSGS ? "Messages" : nullptr;
+    const char *name = d == HOME ? "Home" : d == NODES ? "Nodes" : d == MSGS ? "Messages" : d == MAP ? "Map" : nullptr;
     if (!name)
         return -1;
     const int8_t i = indexOf(name);
