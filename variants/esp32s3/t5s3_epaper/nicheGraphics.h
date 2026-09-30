@@ -24,7 +24,11 @@ This is driven via the FastEPD library through the NicheGraphics ED047TC1 driver
 #include "graphics/niche/InkHUD/InkHUD.h"
 
 // Applets
+#include "T5ComposeTask.h"
+#include "T5ConversationApplet.h"
 #include "T5HomeApplet.h"
+#include "T5MessageModel.h"
+#include "T5MessagesApplet.h"
 #include "T5NodeDetailApplet.h"
 #include "T5NodesApplet.h"
 #include "T5SystemLayer.h"
@@ -91,20 +95,44 @@ void setupNicheGraphics()
 
     // Pick applets
     // Note: order of applets determines priority of "auto-show" feature
-    inkhud->addApplet("All Messages", new InkHUD::AllMessageApplet, false, false); // Not Active, not autoshown
-    // No stock applet autoshows on T5: the foreground screen changes only when the user navigates.
-    inkhud->addApplet("DMs", new InkHUD::DMApplet, true, false);                        // Activated, not autoshown
-    inkhud->addApplet("Channel 0", new InkHUD::ThreadedMessageApplet(0), true, false);  // Activated, not autoshown
-    inkhud->addApplet("Channel 1", new InkHUD::ThreadedMessageApplet(1), false, false); // Not Active, not autoshown
-    inkhud->addApplet("Positions", new InkHUD::PositionsApplet, true, false);           // Activated, not autoshown
-    inkhud->addApplet("Waypoints", new InkHUD::WaypointListApplet, false, false);       // Not Active, not autoshown
-    inkhud->addApplet("Recents List", new InkHUD::RecentsListApplet, true, false);      // Activated, not autoshown
-    inkhud->addApplet("Heard", new InkHUD::HeardApplet, true, false);                   // Activated, not autoshown
-    inkhud->addApplet("Favorites Map", new InkHUD::FavoritesMapApplet, false, false);   // Not Active, not autoshown
-    // T5 applets go last: InkHUD saves applet choices by index, so appending keeps existing saved indices valid
-    inkhud->addApplet("Home", new InkHUD::T5HomeApplet, true, false, 0);           // Activated, not autoshown, default on tile 0
-    inkhud->addApplet("Nodes", new InkHUD::T5NodesApplet, true, false);            // Activated, not autoshown
-    inkhud->addApplet("Node Detail", new InkHUD::T5NodeDetailApplet, true, false); // Activated, not autoshown
+    // No stock applet autoshows on T5: the foreground screen changes only when
+    // the user navigates. The four shared messaging applets stay registered so
+    // every saved applet index keeps its meaning, but they are never user-facing:
+    // T5HomeApplet::begin() deactivates them once saved settings are loaded, so
+    // native Messaging is the only messaging UI (Messaging Final 34). Channel
+    // text now reaches MessageStore through T5MessageModel instead, for every
+    // enabled channel rather than only these two.
+    inkhud->addApplet("All Messages", new InkHUD::AllMessageApplet, false,
+                      false);                                     // Retired on T5
+    inkhud->addApplet("DMs", new InkHUD::DMApplet, false, false); // Retired on T5
+    inkhud->addApplet("Channel 0", new InkHUD::ThreadedMessageApplet(0), false,
+                      false); // Retired on T5
+    inkhud->addApplet("Channel 1", new InkHUD::ThreadedMessageApplet(1), false,
+                      false); // Retired on T5
+    inkhud->addApplet("Positions", new InkHUD::PositionsApplet, true,
+                      false); // Activated, not autoshown
+    inkhud->addApplet("Waypoints", new InkHUD::WaypointListApplet, false,
+                      false); // Not Active, not autoshown
+    inkhud->addApplet("Recents List", new InkHUD::RecentsListApplet, true,
+                      false); // Activated, not autoshown
+    inkhud->addApplet("Heard", new InkHUD::HeardApplet, true,
+                      false); // Activated, not autoshown
+    inkhud->addApplet("Favorites Map", new InkHUD::FavoritesMapApplet, false,
+                      false); // Not Active, not autoshown
+    // T5 applets go last: InkHUD saves applet choices by index, so appending
+    // keeps existing saved indices valid
+    inkhud->addApplet("Home", new InkHUD::T5HomeApplet, true, false,
+                      0); // Activated, not autoshown, default on tile 0
+    inkhud->addApplet("Nodes", new InkHUD::T5NodesApplet, true,
+                      false); // Activated, not autoshown
+    inkhud->addApplet("Node Detail", new InkHUD::T5NodeDetailApplet, true,
+                      false); // Activated, not autoshown
+    // Appended after the Phase 2 T5 applets, for the same reason: no existing
+    // saved index moves
+    inkhud->addApplet("Messages", new InkHUD::T5MessagesApplet, true,
+                      false); // Activated, not autoshown
+    inkhud->addApplet("Conversation", new InkHUD::T5ConversationApplet, true,
+                      false); // Activated, not autoshown
 
     // Touch-capable board: InkHUD needs to know whether touch is live. The shared TOUCH OFF strip it
     // would otherwise raise is suppressed below - the T5 lock band replaces it.
@@ -120,8 +148,14 @@ void setupNicheGraphics()
 
     // Start running InkHUD
     inkhud->begin();
-    InkHUD::T5HomeApplet::begin();  // Saved settings loaded by begin() override the defaults above
-    InkHUD::T5SystemLayer::begin(); // Last: the system layer draws over every other surface
+    InkHUD::T5MessageModel::begin(); // Before the surfaces which read it, and
+                                     // before they register with it
+    InkHUD::T5HomeApplet::begin();   // Saved settings loaded by begin() override
+                                     // the defaults above
+    InkHUD::T5ComposeTask::begin();  // Before the system layer: a task's input
+                                     // claim is checked first (System UI 04)
+    InkHUD::T5SystemLayer::begin();  // Last: the system layer draws over every
+                                     // other surface
 #ifdef T5_INKHUD_SCREENSHOT
     T5Screenshot::begin();
 #endif

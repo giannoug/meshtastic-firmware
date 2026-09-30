@@ -1,6 +1,8 @@
 #if defined(T5_S3_EPAPER_PRO) && defined(MESHTASTIC_INCLUDE_INKHUD)
 
 #include "./T5SystemLayer.h"
+#include "./T5MessageModel.h"
+#include "./T5MessagesApplet.h"
 
 #include "BluetoothStatus.h"
 #include "PowerFSM.h"
@@ -82,20 +84,21 @@ const char *const CARD_CRITICAL_LABEL = "BATTERY \xB7 CRITICAL";
 const char *const WEEKDAYS[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
 // The T5 foreground context the frozen suppression rules are written against
-// (System UI 24). Messaging does not exist until Phase 4; until it does,
-// nothing reports itself as a Messaging screen and the message-banner
-// suppression below is simply never triggered.
+// (System UI 24). Messaging owns the answer - the Messages root, a
+// conversation, and its task layers - so the decision lives in one place rather
+// than being restated here.
 bool foregroundIsMessaging()
 {
-    return false; // Phase 4: true for the T5 Messages list, a conversation, and
-                  // the Console split
+    return InkHUD::T5MessageModel::foregroundIsMessaging();
 }
 
 // A task layer owns the bottom of the screen and its own input, so banners are
-// held rather than drawn over it (M5). The shared keyboard and the shared menu
-// are the only task layers that exist today.
+// held rather than drawn over it (M5). The T5 compose task is one; the shared
+// keyboard and menu are the others that exist.
 bool foregroundIsTask()
 {
+    if (InkHUD::T5MessageModel::taskIsForeground())
+        return true;
     for (const InkHUD::SystemApplet *sa : InkHUD::InkHUD::getInstance()->systemApplets) {
         if (!sa->handleInput || sa == instance)
             continue;
@@ -482,6 +485,7 @@ int InkHUD::T5SystemLayer::onReceiveTextMessage(const meshtastic_MeshPacket *p)
             messages.shortName = id;
             messages.longName = "unknown node";
         }
+        messages.sender = sender;
         messages.channelHeadline = !dm;
         messages.channel = p->channel;
         messages.timestamp = getValidTime(RTCQuality::RTCQualityDevice, true);
@@ -750,14 +754,33 @@ bool InkHUD::T5SystemLayer::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
         else
             clearInfo();
     } else {
-        // OPEN. Native Messaging arrives in Phase 4; until then the aggregate is
-        // consumed exactly as it would be by entering the conversation, and nothing
-        // is routed into the shared applets.
-        clearAggregate();
+        // OPEN: one conversation goes straight to its thread, several to the
+        // Messages root, where Console selects the newest unread for itself. The
+        // aggregate is notification state, not message state, so entering the
+        // context it represents consumes it either way (System UI 06, decision 3).
+        openMessaging();
     }
 
     restoreCoveredScreen();
     return true;
+}
+
+// The frozen banner deep link. A single conversation opens its own thread; a
+// batch spanning more than one opens the Messages root instead, because there
+// is no single right thread to land on (System UI 06).
+void InkHUD::T5SystemLayer::openMessaging()
+{
+    const bool single = messages.conversations == 1 && !messages.overflowed;
+    const T5MessageModel::Convo target = single ? (messages.channelHeadline ? T5MessageModel::Convo::forChannel(messages.channel)
+                                                                            : T5MessageModel::Convo::forPeer(messages.sender))
+                                                : T5MessageModel::Convo();
+
+    clearAggregate(); // Consumed by entering the context it represented, whether
+                      // or not it was read
+    if (target.valid())
+        T5MessagesApplet::open(target);
+    else
+        T5MessagesApplet::open();
 }
 
 // The T5 Home action reached us, so a temporary layer is showing: peel exactly

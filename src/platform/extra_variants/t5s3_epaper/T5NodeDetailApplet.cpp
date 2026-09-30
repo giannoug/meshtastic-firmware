@@ -1,6 +1,7 @@
 #if defined(T5_S3_EPAPER_PRO) && defined(MESHTASTIC_INCLUDE_INKHUD)
 
 #include "./T5NodeDetailApplet.h"
+#include "./T5ComposeTask.h"
 #include "./T5NodesApplet.h"
 
 #include "mesh/NodeDB.h"
@@ -143,26 +144,29 @@ void InkHUD::T5NodeDetailApplet::onRender(bool full)
         printBold(mx, my > cy ? my - 16 - fontSmall.lineHeight() : my + 16, row.shortName, CENTER);
     }
 
-    // Actions. Both targets are Phase 3+ destinations, so they keep their frozen geometry and labels
-    // and are struck through like an unavailable nav cell: the tap is consumed and nothing is drawn
-    // (Redesign 8.4). Routing them at the shared menu or map would open a surface with no way back.
-    auto action = [this](int16_t left, int16_t top, uint16_t w, uint16_t h, const char *text) {
+    // Actions. COMPOSE MESSAGE opens the native composer with this node already
+    // addressed; SHOW ON MAP keeps its cell struck through until Phase 5 builds
+    // the map, so the tap is consumed and nothing is drawn rather than dropping
+    // the user into a surface with no way back (Redesign 8.4).
+    auto action = [this](int16_t left, int16_t top, uint16_t w, uint16_t h, const char *text, bool available) {
         printThick(left + w / 2, top + h / 2, text, 2, 1);
-        strikeThrough(left + (w - getTextWidth(text)) / 2 - 22, top + h / 2, getTextWidth(text) + 44);
+        if (!available)
+            strikeThrough(left + (w - getTextWidth(text)) / 2 - 22, top + h / 2, getTextWidth(text) + 44);
     };
+    const bool canCompose = T5ComposeTask::available();
     if (console) {
         drawLine(MARGIN, 334, MARGIN + 575, 334, BLACK);
         drawLine(MARGIN + 288, 334, MARGIN + 288, 403, BLACK);
         setFont(fontSmall);
-        action(MARGIN, 334, 288, 70, "COMPOSE MESSAGE");
-        action(MARGIN + 288, 334, 288, 70, "SHOW ON MAP");
+        action(MARGIN, 334, 288, 70, "COMPOSE MESSAGE", canCompose);
+        action(MARGIN + 288, 334, 288, 70, "SHOW ON MAP", false);
     } else {
         drawLine(0, 660, width() - 1, 660, BLACK);
         drawLine(0, 748, width() - 1, 748, BLACK);
         drawLine(0, 836, width() - 1, 836, BLACK);
         setFont(fontMedium);
-        action(0, 660, width(), 88, "COMPOSE MESSAGE");
-        action(0, 748, width(), 88, "SHOW ON MAP");
+        action(0, 660, width(), 88, "COMPOSE MESSAGE", canCompose);
+        action(0, 748, width(), 88, "SHOW ON MAP", false);
     }
 
     drawNav();
@@ -183,8 +187,17 @@ bool InkHUD::T5NodeDetailApplet::onTouchPoint(uint16_t x, uint16_t y, bool longP
     // Back: the whole header band in Carry, only the frozen 260 x 63 region in Console, which leaves the
     // long name, id and favourite chip inert. Back returns where this screen was opened from, never Home.
     const bool console = isConsole();
-    if (console ? (tx < 260 && ty < 63) : ty < 100)
+    if (console ? (tx < 260 && ty < 63) : ty < 100) {
         openDestination(origin);
+        return true;
+    }
+
+    // COMPOSE MESSAGE: the composer opens with this node already addressed, and
+    // CANCEL comes back here, so the Node detail context is not lost (Messaging
+    // Final 04, entry C)
+    const bool onCompose = console ? (ty >= 334 && ty < 404 && tx < MARGIN + 288) : (ty >= 660 && ty < 748);
+    if (onCompose)
+        T5ComposeTask::openForNode(node);
 
     // Consume every tap: the button fallback would cycle applets
     return true;

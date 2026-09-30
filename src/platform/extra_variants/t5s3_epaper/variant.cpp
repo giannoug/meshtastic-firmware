@@ -26,6 +26,7 @@
 #include "modules/ExternalNotificationModule.h"
 
 #include "T5Applet.h"
+#include "T5MessageModel.h"
 #include "T5SystemLayer.h"
 #ifdef T5_INKHUD_SCREENSHOT
 #include "T5Screenshot.h"
@@ -172,8 +173,14 @@ void t5SetMode(T5Mode mode)
     // its touch gate both follow the new orientation.
     if (auto *layer = NicheGraphics::InkHUD::T5SystemLayer::getIfBegun())
         layer->onModeChanged();
-    // Every pixel moved. A blocking FULL merges with that queued FAST (DisplayHealth::prioritize),
-    // so the panel does exactly one FULL update and the async render finds nothing left to do.
+    // Messaging hands its conversation between the Carry screen and the Console
+    // split, and re-places the compose task's own full-screen tile. Draft,
+    // destination and layer are applet members, so they ride the re-layout for
+    // free (Messaging Final 09).
+    NicheGraphics::InkHUD::T5MessageModel::onModeChanged();
+    // Every pixel moved. A blocking FULL merges with that queued FAST
+    // (DisplayHealth::prioritize), so the panel does exactly one FULL update and
+    // the async render finds nothing left to do.
     inkhud->forceUpdate(NicheGraphics::Drivers::EInk::UpdateTypes::FULL, true, false);
     // InkHUD otherwise only saves settings on clean shutdown / reboot.
     inkhud->persistence->saveSettings();

@@ -100,6 +100,10 @@ class T5SystemLayer : public SystemApplet, public concurrency::OSThread
 
     void showTerminal(Terminal t);
 
+    // The frozen banner deep link: the represented conversation, or the Messages
+    // root for a batch
+    void openMessaging();
+
     // The firmware is shutting down because the battery is empty, not because the
     // user asked. Called from the PowerFSM low-battery entry, which is the only
     // place that knows the difference.
@@ -132,7 +136,8 @@ class T5SystemLayer : public SystemApplet, public concurrency::OSThread
         bool overflowed = false;   // More conversations than we counted: "8+"
         bool hasDM = false;        // A DM in the batch always keeps the headline
         bool fromSleep = false;    // Folded in while gated: the WHILE ASLEEP wake summary
-        std::string shortName;     // Newest headline sender
+        NodeNum sender = 0;        // Newest headline sender, for the conversation OPEN goes to
+        std::string shortName;
         std::string longName;
         std::string preview;
         uint8_t channel = 0; // Channel index, when the headline is channel traffic

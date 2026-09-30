@@ -1,6 +1,9 @@
 #if defined(T5_S3_EPAPER_PRO) && defined(MESHTASTIC_INCLUDE_INKHUD)
 
 #include "./T5HomeApplet.h"
+#include "./T5ComposeTask.h"
+#include "./T5ConversationApplet.h"
+#include "./T5MessagesApplet.h"
 #include "./T5NodesApplet.h"
 #include "./T5SystemLayer.h"
 
@@ -23,34 +26,8 @@ using namespace NicheGraphics;
 namespace
 {
 
-// Session-local NEW counts: zero at boot, so conversations that already exist start as seen
-uint16_t newDMs = 0;
-uint16_t newChannel0 = 0;
-
-bool isOnScreen(const char *appletName)
-{
-    const int8_t i = InkHUD::T5Applet::indexOf(appletName);
-    return i >= 0 && InkHUD::InkHUD::getInstance()->userApplets[i]->isForeground();
-}
-
-// Draws nothing, but renders with every display update: a conversation is seen once it is actually on screen,
-// however it was opened. Renderer skips it while another system applet locks rendering, when nothing beneath shows.
-class SeenTracker : public InkHUD::SystemApplet
-{
-  public:
-    SeenTracker() { alwaysRender = true; }
-
-    void onRender(bool full) override
-    {
-        (void)full;
-        if (isOnScreen("DMs"))
-            newDMs = 0;
-        if (isOnScreen("Channel 0"))
-            newChannel0 = 0;
-    }
-};
-
-// Seconds since a stored message, or -1 if its timestamp can't be compared with now
+// Seconds since a stored message, or -1 if its timestamp can't be compared with
+// now
 int32_t ageSecs(const StoredMessage &m)
 {
     const uint32_t now = m.isBootRelative ? Time::getUptimeSecs() : getValidTime(RTCQuality::RTCQualityDevice, true);
@@ -63,22 +40,32 @@ void InkHUD::T5HomeApplet::begin()
     InkHUD *hud = InkHUD::getInstance();
     Persistence::Settings &saved = hud->persistence->settings;
 
-    // T5 applets are appended after the shared applets, so their saved indices are untouched.
-    // Settings saved before a T5 applet existed have it inactive; all must be available, and Home shown at boot.
-    for (const char *name : {"Home", "Nodes", "Node Detail"}) {
+    // T5 applets are appended after the shared applets, so their saved indices
+    // are untouched. Settings saved before a T5 applet existed have it inactive;
+    // all must be available, and Home shown at boot.
+    for (const char *name : {"Home", "Nodes", "Node Detail", "Messages", "Conversation"}) {
         const int8_t i = indexOf(name);
         assert(i >= 0);
         saved.userApplets.active[i] = true;
         if (!hud->userApplets[i]->isActive())
             hud->userApplets[i]->activate();
     }
-    // Autoshow is a stock behaviour T5 does not use: the foreground screen changes only when the user
-    // navigates. The defaults in setupNicheGraphics() are overridden by settings saved before that was
-    // true, and by anything the shared Menu set, so clear it here where saved settings are already loaded.
-    for (const char *name : {"DMs", "Channel 0"}) {
+
+    // Native Messaging is the only messaging UI on T5, so the shared messaging
+    // applets are made inactive here rather than removed: an inactive applet
+    // cannot be shown, cannot autoshow and is not offered by the App Switcher,
+    // and leaving them registered keeps every saved applet index valid, so no
+    // settings migration is needed (Messaging Final 34). Done where saved
+    // settings are already loaded, so neither a file written before native
+    // Messaging existed nor anything the shared Menu set can bring one back.
+    for (const char *name : {"All Messages", "DMs", "Channel 0", "Channel 1"}) {
         const int8_t i = indexOf(name);
-        if (i >= 0)
-            saved.userApplets.autoshow[i] = false;
+        if (i < 0)
+            continue;
+        saved.userApplets.active[i] = false;
+        saved.userApplets.autoshow[i] = false;
+        if (hud->userApplets[i]->isActive())
+            hud->userApplets[i]->deactivate();
     }
 
     const int8_t index = indexOf("Home");
@@ -87,12 +74,13 @@ void InkHUD::T5HomeApplet::begin()
         hud->showApplet(index, EInk::UpdateTypes::UNSPECIFIED, true);
     }
 
-    SeenTracker *tracker = new SeenTracker;
-    tracker->name = "T5SeenTracker";
-    (new Tile)->assignApplet(tracker); // Zero-size tile: Renderer never clears any pixels for it
-    tracker->activate();
-    tracker->bringToForeground();
-    hud->systemApplets.push_back(tracker);
+    // Every surface that shows messaging state registers with the model, which
+    // tells them when it moves
+    T5MessageModel *model = T5MessageModel::get();
+    assert(model);
+    model->attach(static_cast<T5HomeApplet *>(hud->userApplets[indexOf("Home")]));
+    model->attach(static_cast<T5MessagesApplet *>(hud->userApplets[indexOf("Messages")]));
+    model->attach(static_cast<T5ConversationApplet *>(hud->userApplets[indexOf("Conversation")]));
 }
 
 InkHUD::T5HomeApplet::T5HomeApplet() : concurrency::OSThread("T5HomeApplet")
@@ -102,41 +90,36 @@ InkHUD::T5HomeApplet::T5HomeApplet() : concurrency::OSThread("T5HomeApplet")
 
 void InkHUD::T5HomeApplet::onActivate()
 {
-    textMessageObserver.observe(textMessageModule);
     OSThread::enabled = true;
     OSThread::setIntervalFromNow(60 * 1000UL);
 }
 
 void InkHUD::T5HomeApplet::onDeactivate()
 {
-    textMessageObserver.unobserve(textMessageModule);
     OSThread::disable();
 }
 
-// While shown, redraw on each minute boundary: the finest step of anything Home shows (clock, ages, 60 s channel load).
-// Skipped while a system surface covers content: our redraw would erase it while it still takes input, and the change is
-// one only we can see (System UI R2). Whatever closes that surface re-renders everything, so nothing is lost.
+// The model moved. Home only shows counts and the latest message, so a redraw
+// is due only while Home is the screen and nothing is covering it (System UI
+// R2).
+void InkHUD::T5HomeApplet::onMessagingChanged()
+{
+    const T5SystemLayer *system = T5SystemLayer::getIfBegun();
+    if (isForeground() && !(system && system->coversContent()) && !T5MessageModel::taskIsForeground())
+        requestUpdate();
+}
+
+// While shown, redraw on each minute boundary: the finest step of anything Home
+// shows (clock, ages, 60 s channel load). Skipped while a system surface covers
+// content: our redraw would erase it while it still takes input, and the change
+// is one only we can see (System UI R2). Whatever closes that surface
+// re-renders everything, so nothing is lost.
 int32_t InkHUD::T5HomeApplet::runOnce()
 {
     const T5SystemLayer *system = T5SystemLayer::getIfBegun();
     if (isForeground() && !(system && system->coversContent()))
         requestUpdate(); // UNSPECIFIED: DisplayHealth folds the FULL refreshes the panel owes into these
     return (60 - getValidTime(RTCQuality::RTCQualityDevice, true) % 60) * 1000UL;
-}
-
-// Only messages received after boot can be NEW
-int InkHUD::T5HomeApplet::onReceiveTextMessage(const meshtastic_MeshPacket *p)
-{
-    if (isFromUs(p))
-        return 0;
-
-    if (!isBroadcast(p->to))
-        newDMs++;
-    else if (p->channel == 0)
-        newChannel0++;
-
-    requestUpdate();
-    return 0;
 }
 
 std::string InkHUD::T5HomeApplet::senderName(NodeNum num)
@@ -257,6 +240,12 @@ InkHUD::T5HomeApplet::Status InkHUD::T5HomeApplet::readStatus()
     if (const StoredMessage *dm = latestIncoming(true)) {
         const int32_t age = ageSecs(*dm);
         s.dmSubtitle = join(senderName(dm->sender), age >= 0 ? agoString(age) : "");
+    }
+
+    if (T5MessageModel *model = T5MessageModel::get()) {
+        s.unread = model->unread();
+        s.unreadChannel0 = model->unread(Convo::forChannel(0));
+        s.unreadDMs = model->unreadDMs();
     }
 
     return s;
@@ -385,7 +374,7 @@ void InkHUD::T5HomeApplet::renderCarry(const Status &s)
 
     // Unread: latest message, then the channel and DM conversations
     printBold(MARGIN, 128, "UNREAD");
-    printBold(right, 128, to_string(newDMs + newChannel0), RIGHT);
+    printBold(right, 128, to_string(s.unread), RIGHT);
     if (s.latest) {
         drawRect(MARGIN, 152, innerW, 116, BLACK);
         drawRect(MARGIN + 1, 153, innerW - 2, 114, BLACK);
@@ -394,9 +383,9 @@ void InkHUD::T5HomeApplet::renderCarry(const Status &s)
         printClipped(MARGIN + 12, 186, innerW - 24, 266, s.latestText);
     }
     drawLine(MARGIN, 288, right - 1, 288, BLACK);
-    drawConversation(MARGIN, 288, innerW, s.channel0Title, s.channel0Subtitle, newChannel0);
+    drawConversation(MARGIN, 288, innerW, s.channel0Title, s.channel0Subtitle, s.unreadChannel0);
     drawLine(MARGIN, 372, right - 1, 372, BLACK);
-    drawConversation(MARGIN, 372, innerW, "Direct messages", s.dmSubtitle, newDMs);
+    drawConversation(MARGIN, 372, innerW, "Direct messages", s.dmSubtitle, s.unreadDMs);
     drawLine(MARGIN, 456, right - 1, 456, BLACK);
 
     // Heard: three most recent
@@ -506,10 +495,10 @@ void InkHUD::T5HomeApplet::renderConsole(const Status &s)
 
     // Unread pair
     drawLine(0, 303, width() - 1, 303, BLACK);
-    drawConversation(MARGIN, 316, 436, s.channel0Title, s.channel0Subtitle, newChannel0);
+    drawConversation(MARGIN, 316, 436, s.channel0Title, s.channel0Subtitle, s.unreadChannel0);
     for (int16_t y = 312; y < 408; y += 2)
         drawPixel(464, y, BLACK);
-    drawConversation(482, 316, 430, "Direct messages", s.dmSubtitle, newDMs);
+    drawConversation(482, 316, 430, "Direct messages", s.dmSubtitle, s.unreadDMs);
 
     drawModeControl(navWidth() + (CONSOLE_SLOT_W - 120) / 2, navTop() + (NAV_H - 46) / 2, 120, 46);
     drawNav();
@@ -527,22 +516,69 @@ bool InkHUD::T5HomeApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
     if (handleNavTap(tx, ty))
         return true;
 
-    // The message regions are MSGS targets, so they consume their tap and do nothing until T5 Messaging
-    // exists (Redesign 8.4). Only the heard column, which is NODES, leads anywhere in this phase.
+    // The frozen Home transitions: the latest-message card and the channel card
+    // open that conversation, and "Direct messages" opens the newest DM, or the
+    // DM empty state when there is none. Nothing routes into a shared messaging
+    // applet (Messaging Final 13).
     if (isConsole()) {
         if (tx >= navWidth() && ty >= navTop())
             t5ToggleMode();
         else if (ty >= 76 && ty < 292 && tx >= 666)
             openDestination(NODES);
+        else if (ty >= 72 && ty < 296 && tx < 386)
+            openLatest();
+        else if (ty >= 316 && ty < 408)
+            tx < 464 ? openChannel0() : openDirect();
     } else {
         if (ty >= navTop() - 68 && ty < navTop() - 18 && tx >= width() - MARGIN - 168 && tx < width() - MARGIN) // Mode control
             t5ToggleMode();
         else if (ty >= 468 && ty < 748)
             openDestination(NODES);
+        else if (ty >= 152 && ty < 288)
+            openLatest();
+        else if (ty >= 288 && ty < 372)
+            openChannel0();
+        else if (ty >= 372 && ty < 456)
+            openDirect();
     }
 
     // Consume every tap: the button fallback would cycle applets
     return true;
+}
+
+// The unread card: the conversation the latest visible message belongs to
+void InkHUD::T5HomeApplet::openLatest()
+{
+    T5MessageModel *model = T5MessageModel::get();
+    const StoredMessage *m = latestIncoming();
+    if (model && m)
+        T5MessagesApplet::open(model->convoOf(*m));
+    else
+        T5MessagesApplet::open();
+}
+
+void InkHUD::T5HomeApplet::openChannel0()
+{
+    T5MessagesApplet::open(Convo::forChannel(0));
+}
+
+// The newest DM conversation, or the frozen DM empty state when there is none.
+// An invalid Convo is what the Messages root reads as "the DM placeholder",
+// which is exactly where this lands (Messaging Final 12).
+void InkHUD::T5HomeApplet::openDirect()
+{
+    T5MessageModel *model = T5MessageModel::get();
+    if (!model) {
+        T5MessagesApplet::open();
+        return;
+    }
+    for (const Convo &c : model->conversations()) {
+        if (!c.isChannel()) {
+            T5MessagesApplet::open(c);
+            return;
+        }
+    }
+    T5MessagesApplet::open(Convo());
 }
 
 #endif

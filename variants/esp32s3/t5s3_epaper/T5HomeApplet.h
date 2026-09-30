@@ -16,12 +16,11 @@ One applet, two compositions picked from the live dimensions: Carry (portrait) a
 
 #include "MessageStore.h"
 #include "concurrency/OSThread.h"
-#include "modules/TextMessageModule.h"
 
 namespace NicheGraphics::InkHUD
 {
 
-class T5HomeApplet : public T5Applet, public concurrency::OSThread
+class T5HomeApplet : public T5Applet, public concurrency::OSThread, public T5Redrawable
 {
   public:
     T5HomeApplet();
@@ -31,6 +30,8 @@ class T5HomeApplet : public T5Applet, public concurrency::OSThread
     void onDeactivate() override;
     void onRender(bool full) override;
     bool onTouchPoint(uint16_t x, uint16_t y, bool longPress) override;
+
+    void onMessagingChanged() override;
 
   private:
     Destination currentDestination() override { return HOME; }
@@ -46,6 +47,10 @@ class T5HomeApplet : public T5Applet, public concurrency::OSThread
         const StoredMessage *latest = nullptr; // Most recent visible incoming message
         std::string latestKind, latestSender, latestSenderLong, latestClock, latestText;
         std::string channel0Title, channel0Subtitle, dmSubtitle;
+
+        // Read from the one messaging model, so Home, the Messages root and the DM
+        // banner can never disagree about what is new (Messaging Final 30)
+        uint16_t unread = 0, unreadChannel0 = 0, unreadDMs = 0;
     };
 
     Status readStatus();
@@ -59,9 +64,11 @@ class T5HomeApplet : public T5Applet, public concurrency::OSThread
     const StoredMessage *latestIncoming(bool dmOnly = false);
     void drawHeardRow(int16_t left, int16_t top, uint16_t w, const T5NodesApplet::Row &row);
 
-    int onReceiveTextMessage(const meshtastic_MeshPacket *p);
-    CallbackObserver<T5HomeApplet, const meshtastic_MeshPacket *> textMessageObserver =
-        CallbackObserver<T5HomeApplet, const meshtastic_MeshPacket *>(this, &T5HomeApplet::onReceiveTextMessage);
+    // The frozen Home deep links (Messaging Final 13)
+    void openLatest();   // The unread card: whichever conversation the newest
+                         // message belongs to
+    void openChannel0(); // The channel card
+    void openDirect();   // The newest DM, or the DM empty state
 };
 
 } // namespace NicheGraphics::InkHUD
