@@ -92,6 +92,16 @@ bool claimWake();
 // Gate GT911 capacitive-home callback delivery until InkHUD startup is complete.
 void t5SetHomeCapButtonEventsEnabled(bool enabled);
 
+// Touch contact state, for the T5 system layer's stale-touch gate. A surface which appears under a finger
+// that is already down must not activate from that contact: taps arrive at release, so the gate compares
+// when the contact began with when the surface was armed.
+// The manual touch preference on its own, with neither the timeout gate nor the light-sleep flag folded
+// in. TOUCH OFF is the user's own setting; ASLEEP is the timeout. The band must not confuse the two.
+bool t5TouchPreferenceEnabled();
+
+bool t5TouchIsDown();
+uint32_t t5TouchDownAtMs(); // 0 before the first contact
+
 #ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
 // BOOT button. Short press is the one T5 Home action, unless the press is what woke the display, in
 // which case it is consumed. Long press has no production UI action: it never opens the shared InkHUD

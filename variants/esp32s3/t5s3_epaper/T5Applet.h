@@ -31,6 +31,9 @@ class T5Applet : public Applet
 
     static int8_t indexOf(const char *name); // Index in InkHUD::userApplets by registered name, or -1
 
+    // "SHORT \x97 Long name", or whichever one we have. Shared with the T5 system layer.
+    static std::string join(const std::string &a, const std::string &b);
+
     void onForeground() override; // Hides the shared battery icon: every T5 screen draws its own battery status
 
   protected:
@@ -54,10 +57,9 @@ class T5Applet : public Applet
     void strikeThrough(int16_t left, int16_t centerY, uint16_t w); // The 2 px unavailable rule, inset 14 px
 
     static bool heardRecently(const meshtastic_NodeInfoLite *node);
-    static std::string hopsString(uint8_t hops);   // "direct", "1 hop", "3 hops"
-    static std::string sinceString(uint32_t secs); // "now", "5 min", "3 h", "2 d"
-    static std::string agoString(uint32_t secs);   // "now", "5 min ago", ...
-    static std::string join(const std::string &a, const std::string &b);
+    static std::string hopsString(uint8_t hops);                          // "direct", "1 hop", "3 hops"
+    static std::string sinceString(uint32_t secs);                        // "now", "5 min", "3 h", "2 d"
+    static std::string agoString(uint32_t secs);                          // "now", "5 min ago", ...
     static std::string powerLabel(bool console, bool withVoltage = true); // Four states, no FULL
 
     int8_t destinationApplet(Destination d); // Applet index a destination opens, or -1 if unavailable

@@ -27,6 +27,7 @@ This is driven via the FastEPD library through the NicheGraphics ED047TC1 driver
 #include "T5HomeApplet.h"
 #include "T5NodeDetailApplet.h"
 #include "T5NodesApplet.h"
+#include "T5SystemLayer.h"
 #include "graphics/niche/InkHUD/Applets/User/AllMessage/AllMessageApplet.h"
 #include "graphics/niche/InkHUD/Applets/User/DM/DMApplet.h"
 #include "graphics/niche/InkHUD/Applets/User/FavoritesMap/FavoritesMapApplet.h"
@@ -105,8 +106,13 @@ void setupNicheGraphics()
     inkhud->addApplet("Nodes", new InkHUD::T5NodesApplet, true, false);            // Activated, not autoshown
     inkhud->addApplet("Node Detail", new InkHUD::T5NodeDetailApplet, true, false); // Activated, not autoshown
 
-    // Enable reusable InkHUD touch status indicator for this touch-capable board.
+    // Touch-capable board: InkHUD needs to know whether touch is live. The shared TOUCH OFF strip it
+    // would otherwise raise is suppressed below - the T5 lock band replaces it.
     inkhud->setTouchEnabledProvider(isTouchInputEnabled);
+
+    // T5 draws its own system surfaces: banner, card, lock band and the terminal power states. The
+    // shared equivalents must not also appear. Inert on every other InkHUD board.
+    inkhud->replacesStockSystemSurfaces = true;
 
     // Hold the image while the display timeout has the UI gated: the base screen is a snapshot until
     // the user wakes the device. Keyed on the timeout gate alone - a manual TOUCH OFF keeps rendering.
@@ -114,7 +120,8 @@ void setupNicheGraphics()
 
     // Start running InkHUD
     inkhud->begin();
-    InkHUD::T5HomeApplet::begin(); // Saved settings loaded by begin() override the defaults above
+    InkHUD::T5HomeApplet::begin();  // Saved settings loaded by begin() override the defaults above
+    InkHUD::T5SystemLayer::begin(); // Last: the system layer draws over every other surface
 #ifdef T5_INKHUD_SCREENSHOT
     T5Screenshot::begin();
 #endif

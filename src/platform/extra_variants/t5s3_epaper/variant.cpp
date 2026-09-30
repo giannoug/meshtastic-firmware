@@ -26,6 +26,7 @@
 #include "modules/ExternalNotificationModule.h"
 
 #include "T5Applet.h"
+#include "T5SystemLayer.h"
 #ifdef T5_INKHUD_SCREENSHOT
 #include "T5Screenshot.h"
 #endif
@@ -256,6 +257,11 @@ volatile bool touchNeedsWake = false;
 volatile bool touchIndicatorRefreshPending = false;
 // The timeout gate skips GT911 reads, so the controller can still hold a touch or Home report from then
 volatile bool touchDrainPending = false;
+// Whether a finger is on the panel right now, and when the current contact began. A system surface that
+// appears under a finger already down must not activate from that contact (System UI G1, G2), and a tap
+// arrives at release, so the gate needs the start of the sequence, not the moment of the tap.
+volatile bool touchIsDown = false;
+volatile uint32_t touchDownAtMs = 0;
 // When the light-sleep resume happened, not when the block expires: an interval bounds a missed
 // 0-check by the settle time, where a stored deadline would block for up to half a wrap cycle.
 constexpr uint32_t TOUCH_RESUME_BLOCK_MS = 150;
@@ -528,28 +534,17 @@ SideKeyInterruptThread *sideKeyThread = nullptr;
 // The band lives in the nav slot, so a change to it is a change to the frame.
 // Timeout keeps the explicit FAST that TouchStatus has always used; wake asks for UNSPECIFIED so that
 // DisplayHealth gets to promote the reconciling full-frame render to FULL.
+// One redraw for a lock-band change. The band itself is owned by T5SystemLayer, which has already been
+// told what changed; this only asks for the frame that shows it.
+//
+// Entering the timeout adds the band in the FAST refresh the shared TOUCH OFF strip used to consume, so
+// it costs nothing extra. Waking asks for an ordinary update instead, and renders everything: while the
+// gate was set the Renderer held the snapshot, so this one frame is the whole logical UI, rebuilt from
+// live state, with DisplayHealth free to promote it to FULL.
 void refreshTouchIndicatorInInkHUD(
     NicheGraphics::Drivers::EInk::UpdateTypes type = NicheGraphics::Drivers::EInk::UpdateTypes::FAST, bool async = true)
 {
-    auto *inkhud = NicheGraphics::InkHUD::InkHUD::getInstance();
-    NicheGraphics::InkHUD::SystemApplet *touchStatus = nullptr;
-    for (auto *sa : inkhud->systemApplets) {
-        if (sa && sa->name && strcmp(sa->name, "TouchStatus") == 0) {
-            touchStatus = sa;
-            break;
-        }
-    }
-
-    if (touchStatus) {
-        if (inkhud->isTouchEnabled())
-            touchStatus->sendToBackground();
-        else
-            touchStatus->bringToForeground();
-    }
-
-    // Re-render all applets so touch-status visibility changes are immediately reflected.
-    // While the gate holds the image, the Renderer ignores the render-all and only the band is drawn.
-    inkhud->forceUpdate(type, true, async);
+    NicheGraphics::InkHUD::InkHUD::getInstance()->forceUpdate(type, true, async);
 }
 #endif
 
@@ -596,6 +591,18 @@ void t5TouchSetForcedByTimeout(bool forced)
 
     touchForcedByTimeout = forced;
     touchIndicatorRefreshPending = true;
+
+#ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
+    // The band, the ASLEEP stamp and the wake reconcile all live in the system layer. Reconciling before
+    // the redraw below is what makes the wake a single correct frame rather than the stale snapshot
+    // followed by a second update.
+    if (auto *layer = NicheGraphics::InkHUD::T5SystemLayer::getIfBegun()) {
+        if (forced)
+            layer->onTimeoutGateSet();
+        else
+            layer->onTimeoutGateClear();
+    }
+#endif
     if (!forced) {
         touchDrainPending = true;
         wakeUnclaimed = true; // A wake, for the press that caused it to claim
@@ -662,6 +669,13 @@ bool isTouchInputEnabled()
     return touchInputEnabled && !touchForcedByTimeout && !touchLightSleepActive;
 }
 
+// The user's own preference alone, with neither gate folded in. The lock band has to tell a choice apart
+// from a sleeping screen, and the combined boolean above cannot (Lock and Power 01).
+bool t5TouchPreferenceEnabled()
+{
+    return touchInputEnabled;
+}
+
 void setTouchInputEnabled(bool enabled, bool showIndicator)
 {
     if (touchInputEnabled == enabled) {
@@ -692,6 +706,11 @@ void setTouchInputEnabled(bool enabled, bool showIndicator)
     }
 
 #ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
+    // Manual TOUCH OFF is not a snapshot: the app keeps rendering live under the band, and there is no
+    // stamp. The band simply follows the preference.
+    if (auto *layer = NicheGraphics::InkHUD::T5SystemLayer::getIfBegun())
+        layer->onTouchPreferenceChanged();
+
     if (showIndicator && !touchLightSleepActive) {
         refreshTouchIndicatorInInkHUD();
         touchIndicatorRefreshPending = false;
@@ -849,12 +868,27 @@ bool readTouch(int16_t *x, int16_t *y)
             *x = raw_x;
             *y = raw_y;
 #endif
+            if (!touchIsDown) {
+                touchIsDown = true;
+                touchDownAtMs = Time::stampMillis();
+            }
             LOG_DEBUG("touched(%d/%d)", *x, *y);
             return true;
         }
     }
 
+    touchIsDown = false; // Contact ended (or never started). touchDownAtMs keeps the last start.
     return false;
+}
+
+bool t5TouchIsDown()
+{
+    return touchIsDown;
+}
+
+uint32_t t5TouchDownAtMs()
+{
+    return touchDownAtMs;
 }
 
 void variant_shutdown()

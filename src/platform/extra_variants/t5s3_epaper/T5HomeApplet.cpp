@@ -2,6 +2,7 @@
 
 #include "./T5HomeApplet.h"
 #include "./T5NodesApplet.h"
+#include "./T5SystemLayer.h"
 
 #include "BluetoothStatus.h"
 #include "DisplayFormatters.h"
@@ -113,10 +114,12 @@ void InkHUD::T5HomeApplet::onDeactivate()
 }
 
 // While shown, redraw on each minute boundary: the finest step of anything Home shows (clock, ages, 60 s channel load).
-// Skipped under a notification banner, which our redraw would erase while it still takes input; dismissing it redraws all
+// Skipped while a system surface covers content: our redraw would erase it while it still takes input, and the change is
+// one only we can see (System UI R2). Whatever closes that surface re-renders everything, so nothing is lost.
 int32_t InkHUD::T5HomeApplet::runOnce()
 {
-    if (isForeground() && !inkhud->getSystemApplet("Notification")->isForeground())
+    const T5SystemLayer *system = T5SystemLayer::getIfBegun();
+    if (isForeground() && !(system && system->coversContent()))
         requestUpdate(); // UNSPECIFIED: DisplayHealth folds the FULL refreshes the panel owes into these
     return (60 - getValidTime(RTCQuality::RTCQualityDevice, true) % 60) * 1000UL;
 }
