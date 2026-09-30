@@ -75,14 +75,15 @@ void InkHUD::T5NodeDetailApplet::onRender(bool full)
         resetCrop();
         drawLine(0, CONSOLE_BAND, width() - 1, CONSOLE_BAND, BLACK);
     } else {
-        // Long name clear of the widest short name; at real font widths the id can't share its line, so it sits below
+        // Long name clear of the widest short name, and cut short of the id rather than pushing it off its line
         const int16_t column = std::max<int16_t>(150, MARGIN + getTextWidth(back) + 2 + 12);
+        setFont(fontSmall);
+        const int16_t idLeft = width() - MARGIN - getTextWidth(id);
+        printAt(width() - MARGIN, 36, id, RIGHT);
         setFont(fontMedium);
-        setCrop(column, 0, width() - MARGIN - column, 99);
+        setCrop(column, 0, std::max<int16_t>(0, idLeft - 12 - column), 99);
         printAt(column, nameTop, row.longName);
         resetCrop();
-        setFont(fontSmall);
-        printAt(width() - MARGIN, 68, id, RIGHT);
         drawLine(0, 99, width() - 1, 99, BLACK);
     }
 
@@ -170,7 +171,7 @@ void InkHUD::T5NodeDetailApplet::onRender(bool full)
 bool InkHUD::T5NodeDetailApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
 {
     if (longPress)
-        return false; // Keep the shared long-press fallback (menu)
+        return true; // No T5 screen assigns a long press, and the stock fallback would open the shared menu
 
     // Touch points are in display space; drawing is relative to our tile
     const int16_t tx = x - getTile()->getLeft();

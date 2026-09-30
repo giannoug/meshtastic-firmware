@@ -255,7 +255,7 @@ void InkHUD::T5NodesApplet::renderConsole(const std::vector<Row> &rows, uint16_t
 bool InkHUD::T5NodesApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
 {
     if (longPress)
-        return false; // Keep the shared long-press fallback (menu)
+        return true; // No T5 screen assigns a long press, and the stock fallback would open the shared menu
 
     // Touch points are in display space; drawing is relative to our tile
     const int16_t tx = x - getTile()->getLeft();
