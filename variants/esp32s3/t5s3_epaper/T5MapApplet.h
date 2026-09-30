@@ -102,6 +102,7 @@ class T5MapApplet : public T5Applet, public SinglePortModule, public concurrency
     static constexpr uint16_t CLUSTER_PX = 24;          // Centres closer than this merge
     static constexpr uint16_t FIT_MARGIN = 24;          // Clearance FIT leaves at the edge
     static constexpr float BEYOND_STEPS = 2.5f;         // Further than the top rung can show
+    static constexpr float MOVED_PX = 6.0f;             // On-screen movement below which a packet is not worth a frame
     static constexpr float OWN_MOVE_M = 50.0f;          // PositionsApplet's own threshold
     static constexpr float RECENTRE_FRACTION = 0.25f;
     static constexpr uint8_t CHOOSER_CELLS = 4;   // Members offered before the last cell becomes "+n"

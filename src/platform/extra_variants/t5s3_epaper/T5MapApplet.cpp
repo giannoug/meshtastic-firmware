@@ -8,6 +8,7 @@
 #include "gps/GeoCoord.h"
 #include "gps/RTC.h"
 #include "mesh/NodeDB.h"
+#include "mesh/mesh-pb-constants.h"
 #include "meshUtils.h"
 
 #include <algorithm>
@@ -136,13 +137,42 @@ void InkHUD::T5MapApplet::resetView()
     order.clear();   // Re-snapshotted against the model reconcile() is about to read
 }
 
-// Position packets only mark the model dirty: every value is re-read from nodeDB at render time, so there
-// is nothing here to keep in step. Never requestAutoshow() (Map 08).
+// A position packet is only worth a refresh when it would change what is on screen. The packet's own
+// coordinates are compared against the ones the last frame drew, so this does not depend on whether
+// nodeDB has already stored them. Never requestAutoshow(): the foreground changes only when the user
+// navigates (Map 08).
 ProcessMessage InkHUD::T5MapApplet::handleReceived(const meshtastic_MeshPacket &mp)
 {
-    (void)mp;
-    if (isForeground())
+    if (!isForeground() || !isActive())
+        return ProcessMessage::CONTINUE;
+
+    meshtastic_Position position = meshtastic_Position_init_default;
+    if (mp.which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
+        !pb_decode_from_bytes(mp.decoded.payload.bytes, mp.decoded.payload.size, &meshtastic_Position_msg, &position) ||
+        !position.has_latitude_i || !position.has_longitude_i || (position.latitude_i == 0 && position.longitude_i == 0)) {
+        requestUpdate(); // Not a position we can measure: let the next frame settle it
+        return ProcessMessage::CONTINUE;
+    }
+
+    const double lat = position.latitude_i * 1e-7, lon = position.longitude_i * 1e-7;
+
+    if (mp.from == nodeDB->getNodeNum()) {
+        // Our own: moves under 50 m are ignored, the same threshold PositionsApplet uses
+        if (own.valid() && GeoCoord::latLongToMeter(lat, lon, own.lat, own.lon) < OWN_MOVE_M)
+            return ProcessMessage::CONTINUE;
         requestUpdate();
+        return ProcessMessage::CONTINUE;
+    }
+
+    // Another node: skip when it has moved less than 6 px on screen and its freshness is unchanged. A
+    // packet always refreshes the panel's age and hop facts for the selection, so that one never skips.
+    const Plot *p = find(mp.from);
+    if (p && p->num != selected && p->age != AGE_UNKNOWN && p->age < STALE_SECS) {
+        const float metresPerPx = rungMetres(rung) / layout().pxPerStep;
+        if (GeoCoord::latLongToMeter(lat, lon, p->lat, p->lon) / metresPerPx < MOVED_PX)
+            return ProcessMessage::CONTINUE;
+    }
+    requestUpdate();
     return ProcessMessage::CONTINUE;
 }
 
