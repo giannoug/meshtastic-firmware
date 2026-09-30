@@ -25,6 +25,9 @@ class T5Applet : public Applet
     static constexpr uint16_t CONSOLE_SLOT_W = 150; // Console: trailing mode slot, outside the six nav cells
     static constexpr uint16_t SIGNAL_W = 41;        // Four 8 px bars, 3 px apart
     static constexpr uint16_t SIGNAL_H = 22;
+    static constexpr int16_t MARGIN = 16;       // The frozen side gutter, clear of the panel's rejected margin
+    static constexpr int16_t CONSOLE_BAND = 63; // Console header band, above the first rule
+    static constexpr const char *DASH = "\x97"; // Win-1253 em dash: the value we cannot supply
 
     static int8_t indexOf(const char *name); // Index in InkHUD::userApplets by registered name, or -1
 
@@ -45,7 +48,10 @@ class T5Applet : public Applet
     bool handleNavTap(uint16_t x, uint16_t y); // True if the tap hit one of the six cells
     void printBold(int16_t x, int16_t y, const std::string &text, HorizontalAlignment ha = LEFT); // Top-aligned
     void drawSignal(int16_t left, int16_t bottom, SignalStrength signal); // Four bars, filled to the rating
-    void strikeThrough(int16_t left, int16_t centerY, uint16_t w);        // The 2 px unavailable rule, inset 14 px
+    // Boxed label at the right edge of a header band, centred in it. Returns its left edge, so a slot
+    // that is only sometimes filled still reserves its width
+    int16_t boxedLabel(const char *text, int16_t bandH, bool draw = true);
+    void strikeThrough(int16_t left, int16_t centerY, uint16_t w); // The 2 px unavailable rule, inset 14 px
 
     static bool heardRecently(const meshtastic_NodeInfoLite *node);
     static std::string hopsString(uint8_t hops);   // "direct", "1 hop", "3 hops"

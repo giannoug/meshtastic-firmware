@@ -64,7 +64,7 @@ std::string InkHUD::T5Applet::join(const std::string &a, const std::string &b)
 std::string InkHUD::T5Applet::powerLabel(bool console, bool withVoltage)
 {
     if (!powerStatus->isInitialized())
-        return console ? "BATT \x97" : ""; // Win-1253 em dash
+        return console ? std::string("BATT ") + DASH : "";
 
     if (!powerStatus->getHasBattery())
         return console ? "USB POWER" : "USB";
@@ -159,6 +159,20 @@ void InkHUD::T5Applet::printBold(int16_t x, int16_t y, const std::string &text, 
 void InkHUD::T5Applet::strikeThrough(int16_t left, int16_t centerY, uint16_t w)
 {
     fillRect(left + 14, centerY - 1, w - 28, 2, BLACK);
+}
+
+// A 2 px box with the frozen 14 / 8 px padding: the Nodes sort order and the Node detail favourite chip
+int16_t InkHUD::T5Applet::boxedLabel(const char *text, int16_t bandH, bool draw)
+{
+    setFont(fontSmall);
+    const int16_t w = getTextWidth(text) + 2 * 14 + 4, h = fontSmall.lineHeight() + 2 * 8 + 4;
+    const int16_t left = width() - MARGIN - w, top = (bandH - h) / 2;
+    if (draw) {
+        drawRect(left, top, w, h, BLACK);
+        drawRect(left + 1, top + 1, w - 2, h - 2, BLACK);
+        printBold(left + w / 2, top + 2 + 8, text, CENTER);
+    }
+    return left;
 }
 
 // Four bars, filled up to the shared getSignalStrength() rating, as NodeListApplet counts them

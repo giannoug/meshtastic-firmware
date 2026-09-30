@@ -11,8 +11,6 @@ using namespace NicheGraphics;
 
 namespace
 {
-constexpr int16_t MARGIN = 16;
-constexpr const char *DASH = "\x97";  // Win-1253 em dash
 constexpr const char *BACK = "\x8B "; // Win-1253 single left angle quote: parse() has no remap for U+2039
 constexpr int16_t PLOT_RADIUS = 64;   // One node gives direction, not scale: the marker sits at a fixed distance
 } // namespace
@@ -68,20 +66,14 @@ void InkHUD::T5NodeDetailApplet::onRender(bool full)
     if (console) {
         // The id sits before the favourite chip's slot, which stays reserved when the chip isn't drawn
         setFont(fontSmall);
-        const int16_t chipW = getTextWidth("FAVOURITE") + 2 * 14 + 4, chipH = fontSmall.lineHeight() + 2 * 8 + 4;
-        const int16_t chipLeft = width() - MARGIN - chipW, chipTop = (63 - chipH) / 2;
-        if (nodeInfoLiteIsFavorite(info)) {
-            drawRect(chipLeft, chipTop, chipW, chipH, BLACK);
-            drawRect(chipLeft + 1, chipTop + 1, chipW - 2, chipH - 2, BLACK);
-            printBold(chipLeft + chipW / 2, chipTop + 2 + 8, "FAVOURITE", CENTER);
-        }
+        const int16_t chipLeft = boxedLabel("FAVOURITE", CONSOLE_BAND, nodeInfoLiteIsFavorite(info));
         const int16_t idLeft = chipLeft - MARGIN - getTextWidth(id);
         printAt(idLeft, titleTop + fontLarge.heightAboveCursor() - fontSmall.heightAboveCursor(), id);
         setFont(fontMedium);
         setCrop(276, 0, idLeft - 12 - 276, 63);
         printAt(276, nameTop, row.longName);
         resetCrop();
-        drawLine(0, 63, width() - 1, 63, BLACK);
+        drawLine(0, CONSOLE_BAND, width() - 1, CONSOLE_BAND, BLACK);
     } else {
         // Long name clear of the widest short name; at real font widths the id can't share its line, so it sits below
         const int16_t column = std::max<int16_t>(150, MARGIN + getTextWidth(back) + 2 + 12);

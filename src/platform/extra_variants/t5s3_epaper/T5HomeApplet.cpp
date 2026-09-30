@@ -21,7 +21,6 @@ using namespace NicheGraphics;
 
 namespace
 {
-constexpr int16_t MARGIN = 16;
 
 // Session-local NEW counts: zero at boot, so conversations that already exist start as seen
 uint16_t newDMs = 0;
@@ -427,7 +426,7 @@ void InkHUD::T5HomeApplet::renderConsole(const Status &s)
     };
 
     setFont(fontLarge);
-    const int16_t nameTop = (63 - (fontLarge.heightAboveCursor() + fontLarge.heightBelowCursor())) / 2;
+    const int16_t nameTop = (CONSOLE_BAND - (fontLarge.heightAboveCursor() + fontLarge.heightBelowCursor())) / 2;
     const int16_t nameRight = MARGIN + getTextWidth(s.shortName);
     printBold(MARGIN, nameTop, s.shortName);
     const int16_t baseline = nameTop + fontLarge.heightAboveCursor();
@@ -456,7 +455,7 @@ void InkHUD::T5HomeApplet::renderConsole(const Status &s)
         drawLine(x, 16, x, 47, BLACK);
         x -= 14;
     }
-    drawLine(0, 63, width() - 1, 63, BLACK);
+    drawLine(0, CONSOLE_BAND, width() - 1, CONSOLE_BAND, BLACK);
 
     // Latest message
     if (s.latest) {

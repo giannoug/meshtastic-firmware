@@ -65,7 +65,6 @@ class T5NodesApplet : public T5Applet, public MeshModule
     uint8_t rowHeight() { return isConsole() ? 78 : 84; }
 
     std::vector<meshtastic_NodeInfoLite *> sortedNodes();
-    int16_t drawSortControl(int16_t bandH); // Boxed LAST HEARD at the right edge; returns its left edge
     void renderCarry(const std::vector<Row> &rows, uint16_t nodes, uint16_t heard);
     void renderConsole(const std::vector<Row> &rows, uint16_t nodes, uint16_t heard, uint16_t direct);
 

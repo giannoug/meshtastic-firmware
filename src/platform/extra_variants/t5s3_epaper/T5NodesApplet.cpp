@@ -12,8 +12,6 @@ using namespace NicheGraphics;
 
 namespace
 {
-constexpr int16_t MARGIN = 16;
-constexpr const char *DASH = "\x97";    // Win-1253 em dash
 constexpr const char *CHEVRON = "\x9B"; // Win-1253 single right angle quote: parse() has no remap for U+203A
 } // namespace
 
@@ -145,25 +143,13 @@ void InkHUD::T5NodesApplet::onRender(bool full)
         renderCarry(rows, nodes.size(), heard);
 }
 
-// The one sort order, boxed at the right edge of the header band. Same control in both modes
-int16_t InkHUD::T5NodesApplet::drawSortControl(int16_t bandH)
-{
-    setFont(fontSmall);
-    const int16_t w = getTextWidth("LAST HEARD") + 2 * 14 + 4, h = fontSmall.lineHeight() + 2 * 8 + 4;
-    const int16_t left = width() - MARGIN - w, top = (bandH - h) / 2;
-    drawRect(left, top, w, h, BLACK);
-    drawRect(left + 1, top + 1, w - 2, h - 2, BLACK);
-    printBold(left + w / 2, top + 2 + 8, "LAST HEARD", CENTER);
-    return left;
-}
-
 void InkHUD::T5NodesApplet::renderCarry(const std::vector<Row> &rows, uint16_t nodes, uint16_t heard)
 {
     const int16_t right = width() - MARGIN;
 
     // Header: title, both counts, and the sort control at the right edge, sharing one 79 px band.
     // The counts are clipped to the gap between them rather than allowed to run under the box
-    const int16_t sortLeft = drawSortControl(79);
+    const int16_t sortLeft = boxedLabel("LAST HEARD", 79);
     setFont(fontLarge);
     printBold(MARGIN, 14, "NODES");
     int16_t x = MARGIN + getTextWidth("NODES") + 12;
@@ -178,7 +164,7 @@ void InkHUD::T5NodesApplet::renderCarry(const std::vector<Row> &rows, uint16_t n
     drawLine(0, 79, width() - 1, 79, BLACK);
 
     // Long names and metadata share one column, just clear of the widest short name on this page
-    constexpr int16_t barsLeft = 429;
+    const int16_t barsLeft = width() - 38 - SIGNAL_W; // Frozen 38 px inset from the right edge
     int16_t column = 112;
     setFont(fontMedium);
     for (const Row &row : rows)
@@ -195,7 +181,7 @@ void InkHUD::T5NodesApplet::renderCarry(const std::vector<Row> &rows, uint16_t n
         resetCrop();
         printAt(width() - 14, top + 42, CHEVRON, RIGHT, MIDDLE);
         if (row.signal != SIGNAL_UNKNOWN)
-            drawSignal(barsLeft, top + 52, row.signal);
+            drawSignal(barsLeft, top + 30 + SIGNAL_H, row.signal);
 
         setFont(fontSmall);
         const std::string hops = row.hops < 0 ? "" : hopsString(row.hops);
@@ -214,7 +200,7 @@ void InkHUD::T5NodesApplet::renderConsole(const std::vector<Row> &rows, uint16_t
 {
     // Header: title, three counts, sort label, centered in a 63 px band
     setFont(fontLarge);
-    const int16_t titleTop = (63 - (fontLarge.heightAboveCursor() + fontLarge.heightBelowCursor())) / 2;
+    const int16_t titleTop = (CONSOLE_BAND - (fontLarge.heightAboveCursor() + fontLarge.heightBelowCursor())) / 2;
     printBold(MARGIN, titleTop, "NODES");
     int16_t x = MARGIN + getTextWidth("NODES") + 24;
     const int16_t countsTop = titleTop + fontLarge.heightAboveCursor() - fontSmall.heightAboveCursor();
@@ -224,7 +210,7 @@ void InkHUD::T5NodesApplet::renderConsole(const std::vector<Row> &rows, uint16_t
         printAt(x, countsTop, count);
         x += getTextWidth(count) + 34;
     }
-    drawSortControl(63);
+    boxedLabel("LAST HEARD", CONSOLE_BAND);
     drawLine(0, 63, width() - 1, 63, BLACK);
 
     // Column headings
