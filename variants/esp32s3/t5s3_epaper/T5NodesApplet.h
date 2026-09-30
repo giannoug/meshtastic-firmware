@@ -45,6 +45,12 @@ class T5NodesApplet : public T5Applet, public MeshModule
 
     Row readRow(meshtastic_NodeInfoLite *node);
 
+    // Messaging Final 05: the recipient picker's ALL NODES row opens this same list in pick mode, where a
+    // row tap addresses the composer instead of opening Node detail. Normal behaviour is untouched while
+    // the callback is null, which is always, until T5 Messaging exists.
+    using PickCallback = void (*)(NodeNum);
+    void setPickMode(PickCallback onPick) { pick = onPick; }
+
   private:
     Destination currentDestination() override { return NODES; }
 
@@ -59,9 +65,11 @@ class T5NodesApplet : public T5Applet, public MeshModule
     uint8_t rowHeight() { return isConsole() ? 78 : 84; }
 
     std::vector<meshtastic_NodeInfoLite *> sortedNodes();
+    int16_t drawSortControl(int16_t bandH); // Boxed LAST HEARD at the right edge; returns its left edge
     void renderCarry(const std::vector<Row> &rows, uint16_t nodes, uint16_t heard);
     void renderConsole(const std::vector<Row> &rows, uint16_t nodes, uint16_t heard, uint16_t direct);
 
+    PickCallback pick = nullptr;
     std::vector<Reception> signals; // Last direct radio reception of each node, this session
     std::vector<NodeNum> shown;     // Nodes on screen, top to bottom: what a row tap opens
     uint16_t firstRow = 0;          // List index of the top row on screen

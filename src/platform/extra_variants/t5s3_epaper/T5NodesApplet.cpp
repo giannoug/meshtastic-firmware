@@ -145,21 +145,36 @@ void InkHUD::T5NodesApplet::onRender(bool full)
         renderCarry(rows, nodes.size(), heard);
 }
 
+// The one sort order, boxed at the right edge of the header band. Same control in both modes
+int16_t InkHUD::T5NodesApplet::drawSortControl(int16_t bandH)
+{
+    setFont(fontSmall);
+    const int16_t w = getTextWidth("LAST HEARD") + 2 * 14 + 4, h = fontSmall.lineHeight() + 2 * 8 + 4;
+    const int16_t left = width() - MARGIN - w, top = (bandH - h) / 2;
+    drawRect(left, top, w, h, BLACK);
+    drawRect(left + 1, top + 1, w - 2, h - 2, BLACK);
+    printBold(left + w / 2, top + 2 + 8, "LAST HEARD", CENTER);
+    return left;
+}
+
 void InkHUD::T5NodesApplet::renderCarry(const std::vector<Row> &rows, uint16_t nodes, uint16_t heard)
 {
     const int16_t right = width() - MARGIN;
 
-    // Header: title with both counts inline, sharing its baseline. At real font metrics the LAST HEARD label
-    // can't also fit, so Carry leaves it out
+    // Header: title, both counts, and the sort control at the right edge, sharing one 79 px band.
+    // The counts are clipped to the gap between them rather than allowed to run under the box
+    const int16_t sortLeft = drawSortControl(79);
     setFont(fontLarge);
     printBold(MARGIN, 14, "NODES");
     int16_t x = MARGIN + getTextWidth("NODES") + 12;
     const int16_t countsTop = 14 + fontLarge.heightAboveCursor() - fontSmall.heightAboveCursor();
     setFont(fontSmall);
     const std::string nodesText = to_string(nodes) + " NODES", heardText = to_string(heard) + " HEARD 10M";
+    setCrop(x, 0, sortLeft - 12 - x, 79);
     printBold(x, countsTop, nodesText);
     x += getTextWidth(nodesText) + 12;
     printAt(x, countsTop, heardText);
+    resetCrop();
     drawLine(0, 79, width() - 1, 79, BLACK);
 
     // Long names and metadata share one column, just clear of the widest short name on this page
@@ -209,11 +224,7 @@ void InkHUD::T5NodesApplet::renderConsole(const std::vector<Row> &rows, uint16_t
         printAt(x, countsTop, count);
         x += getTextWidth(count) + 34;
     }
-    const int16_t sortW = getTextWidth("LAST HEARD") + 2 * 14 + 4, sortH = fontSmall.lineHeight() + 2 * 8 + 4;
-    const int16_t sortLeft = width() - MARGIN - sortW, sortTop = (63 - sortH) / 2;
-    drawRect(sortLeft, sortTop, sortW, sortH, BLACK); // The one sort order, boxed at the right edge
-    drawRect(sortLeft + 1, sortTop + 1, sortW - 2, sortH - 2, BLACK);
-    printBold(sortLeft + sortW / 2, sortTop + 2 + 8, "LAST HEARD", CENTER);
+    drawSortControl(63);
     drawLine(0, 63, width() - 1, 63, BLACK);
 
     // Column headings
@@ -269,7 +280,9 @@ bool InkHUD::T5NodesApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
 
     if (ty >= rowsTop() && (ty - rowsTop()) / rowHeight() < (int16_t)shown.size()) {
         const NodeNum selected = shown[(ty - rowsTop()) / rowHeight()];
-        if (!T5NodeDetailApplet::open(selected))
+        if (pick)
+            pick(selected);
+        else if (!T5NodeDetailApplet::open(selected))
             LOG_WARN("T5 Nodes: can't open Node detail for 0x%08x", selected); // Stay on Nodes
     }
 
