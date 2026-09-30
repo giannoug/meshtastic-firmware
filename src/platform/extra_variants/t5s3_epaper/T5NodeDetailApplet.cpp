@@ -150,26 +150,26 @@ void InkHUD::T5NodeDetailApplet::onRender(bool full)
         printBold(mx, my > cy ? my - 16 - fontSmall.lineHeight() : my + 16, row.shortName, CENTER);
     }
 
-    // Actions. OPEN MAP is struck through, like a nav cell, when no map applet is active
-    const bool mapAvailable = destinationApplet(MAP) >= 0;
-    auto action = [this](int16_t left, int16_t top, uint16_t w, uint16_t h, const char *text, bool available) {
+    // Actions. Both targets are Phase 3+ destinations, so they keep their frozen geometry and labels
+    // and are struck through like an unavailable nav cell: the tap is consumed and nothing is drawn
+    // (Redesign 8.4). Routing them at the shared menu or map would open a surface with no way back.
+    auto action = [this](int16_t left, int16_t top, uint16_t w, uint16_t h, const char *text) {
         printThick(left + w / 2, top + h / 2, text, 2, 1);
-        if (!available)
-            fillRect(left + (w - getTextWidth(text)) / 2 - 8, top + h / 2 - 1, getTextWidth(text) + 16, 2, BLACK);
+        strikeThrough(left + (w - getTextWidth(text)) / 2 - 22, top + h / 2, getTextWidth(text) + 44);
     };
     if (console) {
         drawLine(MARGIN, 334, MARGIN + 575, 334, BLACK);
         drawLine(MARGIN + 288, 334, MARGIN + 288, 403, BLACK);
         setFont(fontSmall);
-        action(MARGIN, 334, 288, 70, "COMPOSE MESSAGE", true);
-        action(MARGIN + 288, 334, 288, 70, "OPEN MAP", mapAvailable);
+        action(MARGIN, 334, 288, 70, "COMPOSE MESSAGE");
+        action(MARGIN + 288, 334, 288, 70, "SHOW ON MAP");
     } else {
         drawLine(0, 660, width() - 1, 660, BLACK);
-        drawLine(0, 747, width() - 1, 747, BLACK);
-        drawLine(0, 835, width() - 1, 835, BLACK);
+        drawLine(0, 748, width() - 1, 748, BLACK);
+        drawLine(0, 836, width() - 1, 836, BLACK);
         setFont(fontMedium);
-        action(0, 660, width(), 88, "COMPOSE MESSAGE", true);
-        action(0, 748, width(), 88, "OPEN MAP", mapAvailable);
+        action(0, 660, width(), 88, "COMPOSE MESSAGE");
+        action(0, 748, width(), 88, "SHOW ON MAP");
     }
 
     drawNav();
@@ -187,18 +187,11 @@ bool InkHUD::T5NodeDetailApplet::onTouchPoint(uint16_t x, uint16_t y, bool longP
     if (handleNavTap(tx, ty))
         return true;
 
+    // Back: the whole header band in Carry, only the frozen 260 x 63 region in Console, which leaves the
+    // long name, id and favourite chip inert. Back returns where this screen was opened from, never Home.
     const bool console = isConsole();
-    int8_t target = -1;
-    if (ty < (console ? 64 : 100)) {
-        target = destinationApplet(NODES); // Back is T5 Nodes, never Home
-    } else if (console ? (ty >= 334 && ty < 404 && tx >= MARGIN && tx < MARGIN + 576) : (ty >= 660 && ty < 836)) {
-        if (console ? tx < MARGIN + 288 : ty < 748)
-            inkhud->openMenu(); // The shared send flow, at its root: nothing public preselects this node as recipient
-        else
-            target = destinationApplet(MAP); // Opens as the map composes itself: nothing public centres it on this node
-    }
-    if (target >= 0)
-        inkhud->showApplet(target, EInk::UpdateTypes::UNSPECIFIED, true);
+    if (console ? (tx < 260 && ty < 63) : ty < 100)
+        openDestination(origin);
 
     // Consume every tap: the button fallback would cycle applets
     return true;
