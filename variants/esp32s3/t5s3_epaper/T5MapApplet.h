@@ -162,8 +162,9 @@ class T5MapApplet : public T5Applet, public SinglePortModule, public concurrency
     NodeNum backNode = 0;       // Deep-link back slot; 0 = no chip
     NodeNum deepTarget = 0;     // The explicit SHOW ON MAP target, exempt from the 24 h rule while selected
     double centreLat = 0, centreLon = 0;
-    bool centred = false;    // centreLat / centreLon hold a real point
-    bool viewPreset = false; // An entry point set the view itself: onForeground must not reset it
+    bool centred = false;     // centreLat / centreLon hold a real point
+    bool centreIsOwn = false; // ...and that point is our own position, so the drift rule applies
+    bool viewPreset = false;  // An entry point set the view itself: onForeground must not reset it
 
     // Cluster chooser: the panel becomes a picker without the map moving (Map 11, M3)
     bool choosing = false;

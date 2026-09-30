@@ -134,7 +134,8 @@ void InkHUD::T5MapApplet::resetView()
     choosing = false;
     chooser.clear();
     centred = false; // settleCentre picks us, or the node centroid, on the next render
-    order.clear();   // Re-snapshotted against the model reconcile() is about to read
+    centreIsOwn = false;
+    order.clear(); // Re-snapshotted against the model reconcile() is about to read
 }
 
 // A position packet is only worth a refresh when it would change what is on screen. The packet's own
@@ -422,19 +423,25 @@ void InkHUD::T5MapApplet::settleCentre(const Layout &l)
             centreLat = a->lat;
             centreLon = a->lon;
             centred = true;
+            centreIsOwn = false;
             return;
         }
         anchor = ME; // The anchor node left the map: fall back to us
     }
 
     if (own.valid()) {
-        const float moved = centred ? GeoCoord::latLongToMeter(own.lat, own.lon, centreLat, centreLon) : 0;
-        const float drift = moved / (rungMetres(rung) / l.pxPerStep);
-        const float allow = RECENTRE_FRACTION * std::min(l.mapW, l.mapH);
-        if (!centred || (moved > OWN_MOVE_M && drift > allow)) {
+        // The hysteresis only applies to a centre that is already ours. Arriving from the node centroid,
+        // from an anchor node, or from a first-ever fix, the view moves to us at once - otherwise a
+        // centroid that happened to sit near us would keep the centre (Map 06, redraw table).
+        // Dropping centred is enough to ask for a fresh centre anywhere: no caller has to clear both
+        const bool holds = centred && centreIsOwn;
+        const float drift =
+            holds ? GeoCoord::latLongToMeter(own.lat, own.lon, centreLat, centreLon) / (rungMetres(rung) / l.pxPerStep) : 0;
+        if (!holds || drift > RECENTRE_FRACTION * std::min(l.mapW, l.mapH)) {
             centreLat = own.lat;
             centreLon = own.lon;
             centred = true;
+            centreIsOwn = true;
         }
         return;
     }
@@ -448,13 +455,10 @@ void InkHUD::T5MapApplet::settleCentre(const Layout &l)
             sumLon += p.lon;
             n++;
         }
-    if (n) {
-        centreLat = sumLat / n;
-        centreLon = sumLon / n;
-        centred = true;
-    } else {
-        centred = false;
-    }
+    centreLat = n ? sumLat / n : 0;
+    centreLon = n ? sumLon / n : 0;
+    centred = n > 0;
+    centreIsOwn = false;
 }
 
 // The smallest ladder step where every fresh plotted node fits with a 24 px margin. With no fresh node,
@@ -1694,7 +1698,9 @@ void InkHUD::T5MapApplet::handlePanelTap(const Layout &l, int16_t tx, int16_t ty
             return;
         }
 
-        if (ty >= l.panelTop && ty < CHOOSER_TOP) { // The CANCEL chip's row
+        // The CANCEL chip sits at the right of the title row. Its half of that row is the target, which
+        // is wider than the chip and leaves the title inert
+        if (ty >= l.panelTop && ty < CHOOSER_TOP && tx > l.panelW / 2) {
             choosing = false;
             select(priorSelection);
             requestUpdate();
