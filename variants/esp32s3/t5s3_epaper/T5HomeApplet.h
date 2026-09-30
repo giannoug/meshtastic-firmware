@@ -32,6 +32,8 @@ class T5HomeApplet : public T5Applet, public concurrency::OSThread
     bool onTouchPoint(uint16_t x, uint16_t y, bool longPress) override;
 
   private:
+    Destination currentDestination() override { return HOME; }
+
     int32_t runOnce() override;
 
     struct HeardRow {

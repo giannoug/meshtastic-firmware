@@ -2,10 +2,9 @@
 
 #include "./T5Applet.h"
 
+#include "PowerStatus.h"
 #include "graphics/niche/InkHUD/SystemApplet.h"
 #include "mesh/NodeDB.h"
-
-#include <initializer_list>
 
 using namespace NicheGraphics;
 
@@ -59,36 +58,48 @@ std::string InkHUD::T5Applet::join(const std::string &a, const std::string &b)
     return a.empty() ? b : b.empty() ? a : a + " \xB7 " + b;
 }
 
-// A destination opens the first active applet of its kind, in registration order
+// The frozen power grammar (Lock and Power 06). Four real states plus "not initialised";
+// there is deliberately no FULL state. Carry Home and the header show the short form,
+// the Console Home segment the long one. Voltage appears only on battery.
+std::string InkHUD::T5Applet::powerLabel(bool console, bool withVoltage)
+{
+    if (!powerStatus->isInitialized())
+        return console ? "BATT \x97" : ""; // Win-1253 em dash
+
+    if (!powerStatus->getHasBattery())
+        return console ? "USB POWER" : "USB";
+
+    const std::string percent = to_string(powerStatus->getBatteryChargePercent()) + " %";
+    if (powerStatus->getHasUSB())
+        return join(console ? "BATT " + percent : percent, powerStatus->getIsCharging() ? "CHG" : "USB");
+
+    if (!console)
+        return percent;
+    if (!withVoltage)
+        return "BATT " + percent; // Console drops the voltage before it lets the status line overflow
+    char volts[12];
+    snprintf(volts, sizeof(volts), "%.2f V", powerStatus->getBatteryVoltageMv() / 1000.0);
+    return join("BATT " + percent, volts);
+}
+
+// Only Home and Nodes have a native T5 screen. The other four keep their cell, struck through, until
+// their T5 destinations are built: pointing them at a stock InkHUD applet would drop the user into a
+// surface with no T5 navigation and no way back (Redesign 8.4; Apps 05 retires the App Switcher on T5,
+// Menu Settings 00 the shared menu).
 int8_t InkHUD::T5Applet::destinationApplet(Destination d)
 {
-    auto firstActive = [this](std::initializer_list<const char *> names) -> int8_t {
-        for (const char *name : names) {
-            const int8_t i = indexOf(name);
-            if (i >= 0 && inkhud->userApplets[i]->isActive())
-                return i;
-        }
+    const char *name = d == HOME ? "Home" : d == NODES ? "Nodes" : nullptr;
+    if (!name)
         return -1;
-    };
-
-    switch (d) {
-    case HOME:
-        return firstActive({"Home"});
-    case MSGS:
-        return firstActive({"All Messages", "DMs", "Channel 0", "Channel 1"});
-    case NODES:
-        return firstActive({"Nodes"});
-    case MAP:
-        return firstActive({"Positions", "Favorites Map"});
-    default: // MENU and APPS open system applets
-        return -1;
-    }
+    const int8_t i = indexOf(name);
+    return (i >= 0 && inkhud->userApplets[i]->isActive()) ? i : -1;
 }
 
 // Six cells across navWidth(): the current one inverted, unavailable ones struck through
-void InkHUD::T5Applet::drawNav(Destination current)
+void InkHUD::T5Applet::drawNav()
 {
     static constexpr const char *labels[] = {"HOME", "MSGS", "NODES", "MAP", "MENU", "APPS"};
+    const Destination current = currentDestination();
     const int16_t top = navTop();
     const uint16_t navW = navWidth();
 
@@ -111,38 +122,29 @@ void InkHUD::T5Applet::drawNav(Destination current)
         if (i > 0)
             drawLine(left, top, left, height() - 1, BLACK);
         printAt(centerX, centerY, labels[i], CENTER, MIDDLE);
-
-        const bool available = i == MENU || i == APPS || destinationApplet((Destination)i) >= 0;
-        if (!available)
-            fillRect(left + 14, centerY - 1, cellW - 28, 2, BLACK);
+        if (destinationApplet((Destination)i) < 0)
+            strikeThrough(left, centerY, cellW);
     }
 
     if (isConsole())
         fillRect(navW, top, 2, NAV_H, BLACK); // Rule between the six cells and the mode slot
 }
 
-// Hit-tests the six cells only: the Console mode slot never resolves to a cell
+// An unavailable destination, and one already on screen, both ask for no update at all: nothing flickers
+void InkHUD::T5Applet::openDestination(Destination d)
+{
+    const int8_t target = destinationApplet(d);
+    if (target >= 0 && !inkhud->userApplets[target]->isForeground())
+        inkhud->showApplet(target, EInk::UpdateTypes::UNSPECIFIED, true);
+}
+
+// Hit-tests the six cells only: the Console mode slot never resolves to a cell.
+// An unavailable cell still consumes its tap, so the button fallback never sees it (Redesign 8.4)
 bool InkHUD::T5Applet::handleNavTap(uint16_t x, uint16_t y)
 {
     if (y < navTop() || x >= navWidth())
         return false;
-
-    const Destination d = (Destination)(x * 6 / navWidth());
-    switch (d) {
-    case MENU:
-        inkhud->openMenu();
-        break;
-    case APPS:
-        inkhud->openAppSwitcher();
-        break;
-    default: {
-        // The screen already shown stays put, without a refresh
-        const int8_t target = destinationApplet(d);
-        if (target >= 0 && !inkhud->userApplets[target]->isForeground())
-            inkhud->showApplet(target, EInk::UpdateTypes::UNSPECIFIED, true);
-        break;
-    }
-    }
+    openDestination((Destination)(x * 6 / navWidth()));
     return true;
 }
 
@@ -151,6 +153,25 @@ void InkHUD::T5Applet::printBold(int16_t x, int16_t y, const std::string &text, 
     const int16_t w = getTextWidth(text);
     const int16_t centerX = ha == LEFT ? x + w / 2 : ha == RIGHT ? x - w / 2 : x;
     printThick(centerX, y + getFont().lineHeight() / 2, text, 2, 1);
+}
+
+// The one unavailable treatment: a 2 px rule through the label, inset 14 px (Redesign 8.4)
+void InkHUD::T5Applet::strikeThrough(int16_t left, int16_t centerY, uint16_t w)
+{
+    fillRect(left + 14, centerY - 1, w - 28, 2, BLACK);
+}
+
+// Four bars, filled up to the shared getSignalStrength() rating, as NodeListApplet counts them
+void InkHUD::T5Applet::drawSignal(int16_t left, int16_t bottom, SignalStrength signal)
+{
+    constexpr int16_t heights[] = {8, 13, 17, 22};
+    for (uint8_t i = 0; i < 4; i++) {
+        const int16_t x = left + i * 11;
+        if (i <= signal)
+            fillRect(x, bottom - heights[i], 8, heights[i], BLACK);
+        else
+            drawLine(x, bottom - 1, x + 7, bottom - 1, BLACK);
+    }
 }
 
 #endif

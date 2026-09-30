@@ -32,7 +32,12 @@ class T5NodeDetailApplet : public T5Applet, public MeshModule
     ProcessMessage handleReceived(const meshtastic_MeshPacket &mp) override;
 
   private:
-    NodeNum node = 0; // Shown node, re-read from nodeDB on every render
+    // Node detail is a deeper screen, not a destination: the bar keeps showing where it was opened from,
+    // and Back returns there. Phase 5 adds MAP as a second origin, with its selection preserved.
+    Destination currentDestination() override { return origin; }
+
+    NodeNum node = 0;           // Shown node, re-read from nodeDB on every render
+    Destination origin = NODES; // Where Back goes
 };
 
 } // namespace NicheGraphics::InkHUD

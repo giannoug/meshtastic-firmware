@@ -46,6 +46,8 @@ class T5NodesApplet : public T5Applet, public MeshModule
     Row readRow(meshtastic_NodeInfoLite *node);
 
   private:
+    Destination currentDestination() override { return NODES; }
+
     struct Reception {
         NodeNum from;
         SignalStrength signal;
@@ -59,7 +61,6 @@ class T5NodesApplet : public T5Applet, public MeshModule
     std::vector<meshtastic_NodeInfoLite *> sortedNodes();
     void renderCarry(const std::vector<Row> &rows, uint16_t nodes, uint16_t heard);
     void renderConsole(const std::vector<Row> &rows, uint16_t nodes, uint16_t heard, uint16_t direct);
-    void drawSignal(int16_t left, int16_t bottom, SignalStrength signal);
 
     std::vector<Reception> signals; // Last direct radio reception of each node, this session
     std::vector<NodeNum> shown;     // Nodes on screen, top to bottom: what a row tap opens

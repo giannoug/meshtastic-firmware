@@ -145,19 +145,6 @@ void InkHUD::T5NodesApplet::onRender(bool full)
         renderCarry(rows, nodes.size(), heard);
 }
 
-// Four bars, filled up to the shared getSignalStrength() rating, as NodeListApplet counts them
-void InkHUD::T5NodesApplet::drawSignal(int16_t left, int16_t bottom, SignalStrength signal)
-{
-    constexpr int16_t heights[] = {8, 13, 17, 22};
-    for (uint8_t i = 0; i < 4; i++) {
-        const int16_t x = left + i * 11;
-        if (i <= signal)
-            fillRect(x, bottom - heights[i], 8, heights[i], BLACK);
-        else
-            drawLine(x, bottom - 1, x + 7, bottom - 1, BLACK);
-    }
-}
-
 void InkHUD::T5NodesApplet::renderCarry(const std::vector<Row> &rows, uint16_t nodes, uint16_t heard)
 {
     const int16_t right = width() - MARGIN;
@@ -205,7 +192,7 @@ void InkHUD::T5NodesApplet::renderCarry(const std::vector<Row> &rows, uint16_t n
         drawLine(0, top + rowHeight() - 1, width() - 1, top + rowHeight() - 1, BLACK);
     }
 
-    drawNav(NODES);
+    drawNav();
 }
 
 void InkHUD::T5NodesApplet::renderConsole(const std::vector<Row> &rows, uint16_t nodes, uint16_t heard, uint16_t direct)
@@ -265,7 +252,7 @@ void InkHUD::T5NodesApplet::renderConsole(const std::vector<Row> &rows, uint16_t
         drawLine(0, top + rowHeight() - 1, width() - 1, top + rowHeight() - 1, BLACK);
     }
 
-    drawNav(NODES);
+    drawNav();
 }
 
 bool InkHUD::T5NodesApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)

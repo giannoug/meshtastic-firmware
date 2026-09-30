@@ -408,7 +408,7 @@ void InkHUD::T5HomeApplet::renderCarry(const Status &s)
     }
 
     drawModeControl(right - 168, navTop() - 1 - 17 - 50, 168, 50);
-    drawNav(HOME);
+    drawNav();
 }
 
 void InkHUD::T5HomeApplet::renderConsole(const Status &s)
@@ -512,7 +512,7 @@ void InkHUD::T5HomeApplet::renderConsole(const Status &s)
     drawConversation(482, 316, 430, "Direct messages", s.dmSubtitle, newDMs);
 
     drawModeControl(navWidth() + (CONSOLE_SLOT_W - 120) / 2, navTop() + (NAV_H - 46) / 2, 120, 46);
-    drawNav(HOME);
+    drawNav();
 }
 
 void InkHUD::T5HomeApplet::openApplet(const std::string &name)

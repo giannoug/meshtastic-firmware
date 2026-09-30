@@ -51,7 +51,7 @@ void InkHUD::T5NodeDetailApplet::onRender(bool full)
         // Gone from nodeDB, or reached by cycling applets before any node was opened: only the ways out
         setFont(fontLarge);
         printBold(MARGIN, titleTop, std::string(BACK) + "NODES");
-        drawNav(NODES);
+        drawNav();
         return;
     }
 
@@ -172,7 +172,7 @@ void InkHUD::T5NodeDetailApplet::onRender(bool full)
         action(0, 748, width(), 88, "OPEN MAP", mapAvailable);
     }
 
-    drawNav(NODES); // Detail is a layer of Nodes, not a destination of its own
+    drawNav();
 }
 
 bool InkHUD::T5NodeDetailApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
