@@ -60,6 +60,10 @@ static bool isPowered()
 }
 
 #if defined(T5_S3_EPAPER_PRO)
+#ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
+#include "T5SystemLayer.h"
+#endif
+
 static void t5BacklightOffForSleep()
 {
     t5BacklightSetForcedBySleep(true);
@@ -79,11 +83,19 @@ static void t5UiGateUserWake()
 {
     T5UiGate::userWake();
 }
+
+static void t5NoteBatteryEmpty()
+{
+#ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
+    NicheGraphics::InkHUD::T5SystemLayer::noteBatteryEmptyShutdown();
+#endif
+}
 #else
 static void t5BacklightOffForSleep() {}
 static void t5BacklightWakeFromSleep() {}
 static void t5UiGateEnterTimeout() {}
 static void t5UiGateUserWake() {}
+static void t5NoteBatteryEmpty() {}
 #endif
 
 static void sdsEnter()
@@ -96,6 +108,8 @@ static void sdsEnter()
 static void lowBattSDSEnter()
 {
     LOG_POWERFSM("State: Lower batt SDS");
+    // The only place that knows this shutdown is the battery giving up rather than the user asking
+    t5NoteBatteryEmpty();
     doDeepSleep(Default::getConfiguredOrDefaultMs(config.power.sds_secs), false, true);
 }
 extern Power *power;
