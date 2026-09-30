@@ -100,7 +100,7 @@ static bool systemAppletOwnsInput()
 // Bridges touch events from TouchScreenImpl1 directly into InkHUD,
 // bypassing the InputBroker (which is excluded in InkHUD builds).
 // Routing mirrors the mini-epaper-s3 two-way rocker pattern:
-//   - Nav left/right: prevApplet/nextApplet when idle, navUp/Down when a system applet has focus (e.g. menu)
+//   - Nav left/right: navUp/Down when a system applet has focus (e.g. menu), otherwise ignored
 //   - Nav up/down:    navUp/navDown always (menu scroll)
 //   - Tap/long-press: direct touch point dispatch (with fallback to short/long button semantics)
 class TouchInkHUDBridge : public Observer<const InputEvent *>
@@ -126,17 +126,15 @@ class TouchInkHUDBridge : public Observer<const InputEvent *>
         case INPUT_BROKER_SELECT:
             inkhud->touchLongPress(e->touchX, e->touchY);
             break;
+        // Horizontal swipes drive whichever system applet owns input, and nothing else. No T5 screen
+        // assigns one, and the stock fallback was applet cycling, which is not user-facing on T5.
         case INPUT_BROKER_LEFT:
             if (systemHandlingInput)
                 inkhud->touchNavUp();
-            else
-                inkhud->prevApplet();
             break;
         case INPUT_BROKER_RIGHT:
             if (systemHandlingInput)
                 inkhud->touchNavDown();
-            else
-                inkhud->nextApplet();
             break;
         case INPUT_BROKER_UP:
             inkhud->touchNavUp();
