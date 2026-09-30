@@ -259,7 +259,7 @@ void InkHUD::T5MessagesApplet::drawRow(int16_t top, uint16_t w, const Convo &c, 
 // conversation.
 void InkHUD::T5MessagesApplet::drawEmptyDMBox(int16_t left, int16_t top, uint16_t w)
 {
-    const int16_t h = itemHeight({Item::EMPTY_DM, {}, nullptr, 0, false}) - 20;
+    const int16_t h = EMPTY_DM_H - 20;
     for (int16_t x = left; x < left + (int16_t)w; x += 4) {
         drawPixel(x, top, BLACK);
         drawPixel(x, top + h - 1, BLACK);
@@ -386,19 +386,11 @@ void InkHUD::T5MessagesApplet::renderCarry()
     pagerShown = total > fullBottom - CARRY_CONTENT_TOP;
     const int16_t bottom = pagerShown ? fullBottom - CARRY_PAGER_H - 1 : fullBottom;
 
-    pageStarts.clear();
-    for (uint16_t i = 0; i < items.size();) {
-        pageStarts.push_back(i);
-        int16_t used = 0;
-        while (i < items.size() && used + (int16_t)itemHeight(items[i]) <= bottom - CARRY_CONTENT_TOP) {
-            used += itemHeight(items[i]);
-            i++;
-        }
-        if (pageStarts.back() == i)
-            i++; // An item taller than a page still gets one of its own
-    }
-    if (pageStarts.empty())
-        pageStarts.push_back(0);
+    std::vector<uint16_t> heights;
+    heights.reserve(items.size());
+    for (const Item &item : items)
+        heights.push_back(itemHeight(item));
+    pageStarts = t5Paginate(heights, bottom - CARRY_CONTENT_TOP);
 
     uint8_t page = 0;
     for (uint8_t p = 0; p < pageStarts.size(); p++) {

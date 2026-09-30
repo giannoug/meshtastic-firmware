@@ -55,6 +55,10 @@ std::vector<std::string> t5WrapLines(Applet &applet, const std::string &text, ui
 // public API
 uint16_t t5TextWidth(Applet &applet, const std::string &text);
 
+// First item of each page, filling greedily from the top. An item taller than a page still gets a page of
+// its own, so no row can be unreachable. Shared by the Messages list and the recipient picker.
+std::vector<uint16_t> t5Paginate(const std::vector<uint16_t> &heights, int16_t room);
+
 // The keyboard types in the display encoding; the wire wants UTF-8. Only the
 // degree sign differs, so the conversion is one substitution, and the frozen
 // byte limit counts the UTF-8 result (Messaging Final 04).

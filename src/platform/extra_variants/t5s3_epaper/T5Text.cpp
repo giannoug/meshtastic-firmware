@@ -151,6 +151,24 @@ std::string InkHUD::t5Elide(NicheGraphics::InkHUD::Applet &applet, const std::st
     return cut + ELLIPSIS;
 }
 
+std::vector<uint16_t> InkHUD::t5Paginate(const std::vector<uint16_t> &heights, int16_t room)
+{
+    std::vector<uint16_t> pages;
+    for (uint16_t i = 0; i < heights.size();) {
+        pages.push_back(i);
+        int16_t used = 0;
+        while (i < heights.size() && used + (int16_t)heights[i] <= room) {
+            used += heights[i];
+            i++;
+        }
+        if (pages.back() == i)
+            i++; // Taller than a whole page: it gets one to itself rather than being skipped
+    }
+    if (pages.empty())
+        pages.push_back(0);
+    return pages;
+}
+
 std::string InkHUD::t5ToUtf8(const std::string &typed)
 {
     std::string out;

@@ -808,22 +808,11 @@ void InkHUD::T5ComposeTask::renderPicker()
     pickPagerShown = total > allNodesTop - (bandH + 1);
     const int16_t bottom = pickPagerShown ? allNodesTop - PICK_PAGER_H - 1 : allNodesTop;
 
-    pickPages.clear();
-    for (uint16_t i = 0; i < items.size();) {
-        pickPages.push_back(i);
-        int16_t used = 0;
-        while (i < items.size()) {
-            const int16_t h = items[i].label ? PICK_LABEL_H : PICK_ROW_H;
-            if (used + h > bottom - (bandH + 1))
-                break;
-            used += h;
-            i++;
-        }
-        if (pickPages.back() == i)
-            i++; // An item taller than a page still gets one of its own
-    }
-    if (pickPages.empty())
-        pickPages.push_back(0);
+    std::vector<uint16_t> heights;
+    heights.reserve(items.size());
+    for (const PickItem &item : items)
+        heights.push_back(item.label ? PICK_LABEL_H : PICK_ROW_H);
+    pickPages = t5Paginate(heights, bottom - (bandH + 1));
 
     uint8_t page = 0;
     for (uint8_t p = 0; p < pickPages.size(); p++) {

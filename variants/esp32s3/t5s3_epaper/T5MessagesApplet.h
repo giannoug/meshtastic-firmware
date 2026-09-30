@@ -53,6 +53,9 @@ class T5MessagesApplet : public T5ThreadApplet, public T5Redrawable
         bool channelSection = false; // LABEL only: which section it opens, for the CONTINUED suffix
     };
 
+    // The frozen dashed box: a title line and a wrapped hint. Text, not a target.
+    static constexpr uint16_t EMPTY_DM_H = 160;
+
     std::vector<Item> buildItems();
     uint16_t itemHeight(const Item &item);
 

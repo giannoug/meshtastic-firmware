@@ -267,7 +267,8 @@ void InkHUD::T5ThreadApplet::drawThread(Thread &t, int16_t left, int16_t top, ui
         }
     }
 
-    // Measure every message once, then fill pages backwards
+    // Measure every message once, then fill pages backwards. Bounded by the whole store, which holds
+    // twenty messages on this build, so wrapping them all on each render is cheaper than tracking heights.
     std::vector<Block> blocks;
     blocks.reserve(msgs.size());
     for (const StoredMessage *m : msgs)
