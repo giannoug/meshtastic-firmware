@@ -174,9 +174,9 @@ class T5MapApplet : public T5Applet, public SinglePortModule, public concurrency
     // Left as the last frame drew it, so a tap hit-tests exactly what the user is looking at.
 
     std::vector<Plot> plots;
+    Rect selTag{}, usTag{}; // The off-screen tags the last frame drew, and so what a tap can hit
     Own own;
     uint16_t noPosition = 0, staleCount = 0, oldCount = 0, beyondCount = 0;
-    float ownLastLat = 0, ownLastLon = 0; // Last own position we accepted, for the 50 m threshold
 
     // ---- pipeline ----------------------------------------------------------------------------------
 
@@ -190,6 +190,8 @@ class T5MapApplet : public T5Applet, public SinglePortModule, public concurrency
     void settleOrder();
     void settleCentre(const Layout &l);
     void applyFit(const Layout &l);
+    void toPixels(const Layout &l, double lat, double lon, int16_t &x, int16_t &y) const;
+    bool inBand(const Layout &l, int16_t x, int16_t y, int16_t half) const;
     void project(const Layout &l);
     void buildClusters(const Layout &l);
 
@@ -214,7 +216,7 @@ class T5MapApplet : public T5Applet, public SinglePortModule, public concurrency
     void drawUs(const Layout &l, int16_t x, int16_t y);
     void drawRings(const Layout &l, int16_t ux, int16_t uy, std::vector<Rect> &taken);
     void drawMarkers(const Layout &l, std::vector<Rect> &taken);
-    void drawEdgeTag(const Layout &l, const std::string &name, const std::string &away, int16_t degrees);
+    void drawEdgeTag(const Layout &l, const std::string &name, const std::string &away, int16_t degrees, Rect &box);
     void drawScaleBar(const Layout &l);
     void drawActions(const Layout &l);
     void drawChooser(const Layout &l);
@@ -236,7 +238,6 @@ class T5MapApplet : public T5Applet, public SinglePortModule, public concurrency
 
     void handleMapTap(const Layout &l, int16_t tx, int16_t ty);
     void handlePanelTap(const Layout &l, int16_t tx, int16_t ty);
-    bool edgeTagHit(const Layout &l, int16_t tx, int16_t ty, double lat, double lon);
 
     bool place(std::vector<Rect> &taken, const Rect &r) const; // Free? Then take it
 };

@@ -436,8 +436,6 @@ void InkHUD::T5MapApplet::settleCentre(const Layout &l)
             centreLon = own.lon;
             centred = true;
         }
-        ownLastLat = own.lat;
-        ownLastLon = own.lon;
         return;
     }
 
@@ -498,19 +496,33 @@ void InkHUD::T5MapApplet::applyFit(const Layout &l)
 }
 
 // North-up, metres from the centre, through the same geographic helpers Node detail's relative plot uses
-void InkHUD::T5MapApplet::project(const Layout &l)
+// North-up, metres from the centre, through the same geographic helpers Node detail's relative plot uses.
+// The one place a coordinate becomes a pixel, so the markers, US, the rings and the edge tags cannot
+// disagree about where something is.
+void InkHUD::T5MapApplet::toPixels(const Layout &l, double lat, double lon, int16_t &x, int16_t &y) const
 {
     const float metresPerPx = rungMetres(rung) / l.pxPerStep;
+    const float d = GeoCoord::latLongToMeter(lat, lon, centreLat, centreLon);
+    const float b = GeoCoord::bearing(centreLat, centreLon, lat, lon);
+    x = l.cx + lround(d * sinf(b) / metresPerPx);
+    y = l.cy - lround(d * cosf(b) / metresPerPx);
+}
+
+// Whether a point that size sits wholly inside the map band
+bool InkHUD::T5MapApplet::inBand(const Layout &l, int16_t x, int16_t y, int16_t half) const
+{
+    return x >= half && x < l.mapW - half && y >= l.mapTop + half && y < l.mapTop + l.mapH - half;
+}
+
+void InkHUD::T5MapApplet::project(const Layout &l)
+{
     for (Plot &p : plots) {
         p.group = -1;
         p.onScreen = false;
         if (!centred)
             continue;
-        const float d = GeoCoord::latLongToMeter(p.lat, p.lon, centreLat, centreLon);
-        const float b = GeoCoord::bearing(centreLat, centreLon, p.lat, p.lon);
-        p.x = l.cx + lround(d * sin(b) / metresPerPx);
-        p.y = l.cy - lround(d * cos(b) / metresPerPx);
-        p.onScreen = p.x >= 7 && p.x < l.mapW - 7 && p.y >= l.mapTop + 7 && p.y < l.mapTop + l.mapH - 7;
+        toPixels(l, p.lat, p.lon, p.x, p.y);
+        p.onScreen = inBand(l, p.x, p.y, 7); // Half of the 14 px square
     }
 }
 
@@ -519,31 +531,30 @@ void InkHUD::T5MapApplet::project(const Layout &l)
 void InkHUD::T5MapApplet::buildClusters(const Layout &l)
 {
     (void)l;
-    // Walk the order snapshot, so which marker leads a cluster does not depend on nodeDB's ordering
-    std::vector<NodeNum> walk = order;
-    for (const Plot &p : plots)
-        if (drawn(p) && std::find(walk.begin(), walk.end(), p.num) == walk.end())
-            walk.push_back(p.num);
+    // Taken in the order snapshot's order, so which marker leads a cluster does not depend on nodeDB's
+    // ordering, and a cluster does not re-form around a different member between frames
+    std::vector<Plot *> candidates;
+    for (Plot &p : plots)
+        if (drawn(p) && p.onScreen && p.num != selected) // The selection is never absorbed (Map 03)
+            candidates.push_back(&p);
+    std::sort(candidates.begin(), candidates.end(), [this](const Plot *a, const Plot *b) {
+        const auto ia = std::find(order.begin(), order.end(), a->num);
+        const auto ib = std::find(order.begin(), order.end(), b->num);
+        if (ia != ib)
+            return ia < ib; // Anything outside the order sorts after it, by end() position
+        return a->num < b->num;
+    });
 
     std::vector<Plot *> leads;
-    for (NodeNum num : walk) {
-        Plot *p = nullptr;
-        for (Plot &q : plots)
-            if (q.num == num)
-                p = &q;
-        if (!p || !drawn(*p) || !p->onScreen || p->num == selected)
-            continue;
-
-        bool joined = false;
+    for (Plot *p : candidates) {
         for (uint8_t g = 0; g < leads.size(); g++) {
-            const int16_t dx = p->x - leads[g]->x, dy = p->y - leads[g]->y;
+            const int32_t dx = p->x - leads[g]->x, dy = p->y - leads[g]->y;
             if (dx * dx + dy * dy <= CLUSTER_PX * CLUSTER_PX) {
                 p->group = g;
-                joined = true;
                 break;
             }
         }
-        if (!joined) {
+        if (p->group < 0) {
             p->group = leads.size();
             leads.push_back(p);
         }
@@ -1045,7 +1056,8 @@ void InkHUD::T5MapApplet::drawScaleBar(const Layout &l)
 
 // An inverted tag clamped to the map edge on the bearing line, with an arrow and a distance. Only the
 // selected node and US ever get one: a clipped marker would lose awareness of them (Map 03, 05).
-void InkHUD::T5MapApplet::drawEdgeTag(const Layout &l, const std::string &name, const std::string &away, int16_t degrees)
+void InkHUD::T5MapApplet::drawEdgeTag(const Layout &l, const std::string &name, const std::string &away, int16_t degrees,
+                                      Rect &box)
 {
     setFont(fontSmall);
     const int16_t lh = fontSmall.lineHeight();
@@ -1068,6 +1080,7 @@ void InkHUD::T5MapApplet::drawEdgeTag(const Layout &l, const std::string &name, 
     const int16_t left = std::min<int16_t>(std::max<int16_t>(4, cx - boxW / 2), l.mapW - 4 - boxW);
     const int16_t top = std::min<int16_t>(std::max<int16_t>(l.mapTop + 4, cy - boxH / 2), l.mapTop + l.mapH - 4 - boxH);
 
+    box = Rect{left, top, (uint16_t)boxW, (uint16_t)boxH};
     fillRect(left - 2, top - 2, boxW + 4, boxH + 4, WHITE);
     fillRect(left, top, boxW, boxH, BLACK);
     setTextColor(WHITE);
@@ -1208,6 +1221,7 @@ void InkHUD::T5MapApplet::drawMarkers(const Layout &l, std::vector<Rect> &taken)
 
 void InkHUD::T5MapApplet::drawMapBand(const Layout &l)
 {
+    selTag = usTag = Rect{}; // Nothing is tappable until this frame draws it
     setCrop(0, l.mapTop, l.mapW, l.mapH);
 
     // The only full-map message: no own position and nothing plotted, so no control could change what is
@@ -1234,12 +1248,8 @@ void InkHUD::T5MapApplet::drawMapBand(const Layout &l)
     int16_t ux = 0, uy = 0;
     bool usOnScreen = false;
     if (own.valid()) {
-        const float metresPerPx = rungMetres(rung) / l.pxPerStep;
-        const float d = GeoCoord::latLongToMeter(own.lat, own.lon, centreLat, centreLon);
-        const float b = GeoCoord::bearing(centreLat, centreLon, own.lat, own.lon);
-        ux = l.cx + lround(d * sinf(b) / metresPerPx);
-        uy = l.cy - lround(d * cosf(b) / metresPerPx);
-        usOnScreen = ux >= 13 && ux < l.mapW - 13 && uy >= l.mapTop + 13 && uy < l.mapTop + l.mapH - 13;
+        toPixels(l, own.lat, own.lon, ux, uy);
+        usOnScreen = inBand(l, ux, uy, 13); // Half of the 26 px ring
     }
 
     std::vector<Rect> taken;
@@ -1256,13 +1266,13 @@ void InkHUD::T5MapApplet::drawMapBand(const Layout &l)
         const float b = GeoCoord::bearing(centreLat, centreLon, sel->lat, sel->lon);
         const int16_t deg = (lround(GeoCoord::toDegrees(b)) + 360) % 360;
         const float away = GeoCoord::latLongToMeter(sel->lat, sel->lon, centreLat, centreLon);
-        drawEdgeTag(l, t5NodeTag(sel->num), distanceString(away), deg);
+        drawEdgeTag(l, t5NodeTag(sel->num), distanceString(away), deg, selTag);
     }
     if (own.valid() && !usOnScreen) {
         const float b = GeoCoord::bearing(centreLat, centreLon, own.lat, own.lon);
         const int16_t deg = (lround(GeoCoord::toDegrees(b)) + 360) % 360;
         const float away = GeoCoord::latLongToMeter(own.lat, own.lon, centreLat, centreLon);
-        drawEdgeTag(l, "YOU", distanceString(away), deg);
+        drawEdgeTag(l, "YOU", distanceString(away), deg, usTag);
     }
 
     // US last, as the shared base does
@@ -1608,11 +1618,20 @@ bool InkHUD::T5MapApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
 
 void InkHUD::T5MapApplet::handleMapTap(const Layout &l, int16_t tx, int16_t ty)
 {
-    // An off-screen tag acts as CENTER on that target (Map 04). Tested first: it sits over the map edge.
+    // An off-screen tag acts as CENTER on that target. Tested against the rect the last frame actually
+    // drew, so the target and what the user sees cannot drift apart (Map 04).
     const Plot *sel = find(selected);
-    if (sel && drawn(*sel) && !sel->onScreen && edgeTagHit(l, tx, ty, sel->lat, sel->lon)) {
+    if (selTag.w && selTag.hits(Rect{tx, ty, 1, 1}) && sel) {
         anchorNode = selected;
         anchor = NODE;
+        fit = false;
+        centred = false;
+        requestUpdate();
+        return;
+    }
+    if (usTag.w && usTag.hits(Rect{tx, ty, 1, 1})) {
+        anchor = ME;
+        anchorNode = 0;
         fit = false;
         centred = false;
         requestUpdate();
@@ -1648,20 +1667,6 @@ void InkHUD::T5MapApplet::handleMapTap(const Layout &l, int16_t tx, int16_t ty)
         return;
     }
     select(best->num);
-}
-
-// Whether a tap landed on the tag drawn for a target on the given bearing
-bool InkHUD::T5MapApplet::edgeTagHit(const Layout &l, int16_t tx, int16_t ty, double lat, double lon)
-{
-    if (!centred)
-        return false;
-    const float b = GeoCoord::bearing(centreLat, centreLon, lat, lon);
-    const int16_t deg = (lround(GeoCoord::toDegrees(b)) + 360) % 360;
-    const float a = deg * (float)M_PI / 180.0f;
-    // The tag sits out near the edge on the bearing line: a generous box around that point
-    const int16_t ex = l.cx + lround(std::min(l.mapW, l.mapH) / 2.0f * sinf(a));
-    const int16_t ey = l.cy - lround(std::min(l.mapW, l.mapH) / 2.0f * cosf(a));
-    return std::abs(tx - ex) <= 80 && std::abs(ty - ey) <= 32;
 }
 
 void InkHUD::T5MapApplet::handlePanelTap(const Layout &l, int16_t tx, int16_t ty)
