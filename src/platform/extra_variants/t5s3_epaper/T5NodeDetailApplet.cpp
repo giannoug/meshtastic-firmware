@@ -2,6 +2,7 @@
 
 #include "./T5NodeDetailApplet.h"
 #include "./T5ComposeTask.h"
+#include "./T5MapApplet.h"
 #include "./T5NodesApplet.h"
 
 #include "mesh/NodeDB.h"
@@ -147,28 +148,29 @@ void InkHUD::T5NodeDetailApplet::onRender(bool full)
     }
 
     // Actions. COMPOSE MESSAGE opens the native composer with this node already
-    // addressed; SHOW ON MAP keeps its cell struck through until Phase 5 builds
-    // the map, so the tap is consumed and nothing is drawn rather than dropping
-    // the user into a surface with no way back (Redesign 8.4).
+    // addressed; SHOW ON MAP opens the native map with this node selected and
+    // centred, whatever the age of its position, and with no position at all it
+    // still opens and says so rather than pretending (Map 07, E4, E10).
     auto action = [this](int16_t left, int16_t top, uint16_t w, uint16_t h, const char *text, bool available) {
         printThick(left + w / 2, top + h / 2, text, 2, 1);
         if (!available)
             strikeThrough(left + (w - getTextWidth(text)) / 2 - 22, top + h / 2, getTextWidth(text) + 44);
     };
     const bool canCompose = T5ComposeTask::available();
+    const bool canMap = indexOf("Map") >= 0;
     if (console) {
         drawLine(MARGIN, 334, MARGIN + 575, 334, BLACK);
         drawLine(MARGIN + 288, 334, MARGIN + 288, 403, BLACK);
         setFont(fontSmall);
         action(MARGIN, 334, 288, 70, "COMPOSE MESSAGE", canCompose);
-        action(MARGIN + 288, 334, 288, 70, "SHOW ON MAP", false);
+        action(MARGIN + 288, 334, 288, 70, "SHOW ON MAP", canMap);
     } else {
         drawLine(0, 660, width() - 1, 660, BLACK);
         drawLine(0, 748, width() - 1, 748, BLACK);
         drawLine(0, 836, width() - 1, 836, BLACK);
         setFont(fontMedium);
         action(0, 660, width(), 88, "COMPOSE MESSAGE", canCompose);
-        action(0, 748, width(), 88, "SHOW ON MAP", false);
+        action(0, 748, width(), 88, "SHOW ON MAP", canMap);
     }
 
     drawNav();
@@ -198,8 +200,15 @@ bool InkHUD::T5NodeDetailApplet::onTouchPoint(uint16_t x, uint16_t y, bool longP
     // CANCEL comes back here, so the Node detail context is not lost (Messaging
     // Final 04, entry C)
     const bool onCompose = console ? (ty >= 334 && ty < 404 && tx < MARGIN + 288) : (ty >= 660 && ty < 748);
-    if (onCompose)
+    if (onCompose) {
         T5ComposeTask::openForNode(node);
+        return true;
+    }
+
+    // SHOW ON MAP: the map opens with this node selected and centred, and its back chip returns here
+    const bool onMap = console ? (ty >= 334 && ty < 404 && tx >= MARGIN + 288) : (ty >= 748 && ty < 836);
+    if (onMap)
+        T5MapApplet::focusNode(node);
 
     // Consume every tap: the button fallback would cycle applets
     return true;
