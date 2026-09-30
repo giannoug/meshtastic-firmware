@@ -52,7 +52,7 @@ void InkHUD::T5NodeDetailApplet::onRender(bool full)
     if (!info) {
         // Gone from nodeDB, or reached by cycling applets before any node was opened: only the ways out
         setFont(fontLarge);
-        printBold(MARGIN, titleTop, std::string(BACK) + "NODES");
+        printBold(MARGIN, titleTop, std::string(BACK) + (origin == MAP ? "MAP" : "NODES"));
         drawNav();
         return;
     }
@@ -192,7 +192,12 @@ bool InkHUD::T5NodeDetailApplet::onTouchPoint(uint16_t x, uint16_t y, bool longP
     // long name, id and favourite chip inert. Back returns where this screen was opened from, never Home.
     const bool console = isConsole();
     if (console ? (tx < 260 && ty < 63) : ty < 100) {
-        openDestination(origin);
+        // Back to the map restores the view it had; back to Nodes is an ordinary destination. One return
+        // slot either way, so no Node detail <-> Map history builds up (Map 07, D3).
+        if (origin == MAP)
+            T5MapApplet::openRestoring();
+        else
+            openDestination(origin);
         return true;
     }
 
