@@ -1,6 +1,7 @@
 #if defined(T5_S3_EPAPER_PRO) && defined(MESHTASTIC_INCLUDE_INKHUD)
 
 #include "./T5HomeApplet.h"
+#include "./T5NodesApplet.h"
 
 #include "BluetoothStatus.h"
 #include "DisplayFormatters.h"
@@ -8,7 +9,6 @@
 #include "PowerStatus.h"
 #include "UptimeClock.h"
 #include "airtime.h"
-#include "gps/GeoCoord.h"
 #include "gps/RTC.h"
 #include "graphics/niche/InkHUD/SystemApplet.h"
 #include "mesh/Channels.h"
@@ -171,13 +171,6 @@ InkHUD::T5HomeApplet::Status InkHUD::T5HomeApplet::readStatus()
     s.nodeId = hexifyNodeNum(ourNum);
     s.clock = getTimeString(); // Empty until the RTC is valid
 
-    if (powerStatus->getHasBattery()) {
-        s.battery = to_string(powerStatus->getBatteryChargePercent()) + "%";
-        char volts[8];
-        snprintf(volts, sizeof(volts), "%.2fV", powerStatus->getBatteryVoltageMv() / 1000.0);
-        s.voltage = volts;
-    }
-
     if (myRegion)
         s.region = myRegion->name;
     s.preset = DisplayFormatters::getModemPresetDisplayName(config.lora.modem_preset, false, config.lora.use_preset);
@@ -222,20 +215,14 @@ InkHUD::T5HomeApplet::Status InkHUD::T5HomeApplet::readStatus()
               [](const meshtastic_NodeInfoLite *a, const meshtastic_NodeInfoLite *b) { return a->last_heard > b->last_heard; });
     s.heardCount = heard.size();
 
-    meshtastic_PositionLite ourPos, theirPos;
-    const bool haveOurPos = nodeDB->copyNodePosition(ourNum, ourPos);
+    // The same reading of a node as its T5 Nodes row: distance, hops and the session signal the bars need
+    const int8_t nodesIndex = indexOf("Nodes");
+    assert(nodesIndex >= 0);
+    T5NodesApplet *nodes = static_cast<T5NodesApplet *>(inkhud->userApplets[nodesIndex]);
     for (meshtastic_NodeInfoLite *node : heard) {
         if (s.heard.size() == 6)
             break;
-        HeardRow row;
-        row.shortName = parseShortName(node);
-        row.longName = nodeInfoLiteHasUser(node) ? parse(node->long_name) : hexifyNodeNum(node->num);
-        if (haveOurPos && nodeDB->copyNodePosition(node->num, theirPos))
-            row.distance = localizeDistance(GeoCoord::latLongToMeter(theirPos.latitude_i * 1e-7, theirPos.longitude_i * 1e-7,
-                                                                     ourPos.latitude_i * 1e-7, ourPos.longitude_i * 1e-7));
-        if (node->has_hops_away)
-            row.hops = hopsString(node->hops_away);
-        s.heard.push_back(row);
+        s.heard.push_back(nodes->readRow(node));
     }
 
     s.latest = latestIncoming();
@@ -344,13 +331,31 @@ void InkHUD::T5HomeApplet::drawModeControl(int16_t x, int16_t y, uint16_t w, uin
     printAt(left + arrowW + gap, y + h / 2, label, LEFT, MIDDLE);
 }
 
+// One Carry heard row (C1): short name over long name, the meta value and the signal bars at the right edge
+void InkHUD::T5HomeApplet::drawHeardRow(int16_t left, int16_t top, uint16_t w, const T5NodesApplet::Row &row)
+{
+    const int16_t right = left + w;
+    setFont(fontMedium);
+    setCrop(left, top, w - SIGNAL_W - 12, 84);
+    printBold(left, top + 12, row.shortName);
+    setFont(fontSmall);
+    printAt(left, top + 54, row.longName);
+    resetCrop();
+
+    // Distance when we can compute it, otherwise how far away the node is in hops
+    printBold(right, top + 48, row.distance.empty() ? (row.hops < 0 ? "" : hopsString(row.hops)) : row.distance, RIGHT);
+    if (row.signal != SIGNAL_UNKNOWN)
+        drawSignal(right - SIGNAL_W, top + 14 + SIGNAL_H, row.signal);
+    drawLine(left, top + 83, right - 1, top + 83, BLACK);
+}
+
 void InkHUD::T5HomeApplet::renderCarry(const Status &s)
 {
     const int16_t right = width() - MARGIN;
     const uint16_t innerW = width() - 2 * MARGIN;
 
     // Identity: short name and node id left, battery and clock right, sharing a baseline
-    const std::string power = join(s.battery, s.clock);
+    const std::string power = join(powerLabel(false), s.clock);
     setFont(fontLarge);
     printBold(MARGIN, 14, s.shortName);
     const int16_t nameRight = MARGIN + getTextWidth(s.shortName);
@@ -396,16 +401,8 @@ void InkHUD::T5HomeApplet::renderCarry(const Status &s)
     setFont(fontSmall);
     printBold(MARGIN, 468, "HEARD \xB7 10 MIN");
     printBold(right, 468, to_string(s.heardCount), RIGHT);
-    for (uint8_t i = 0; i < 3 && i < s.heard.size(); i++) {
-        const HeardRow &row = s.heard[i];
-        const int16_t top = 496 + i * 84;
-        setFont(fontMedium);
-        printBold(MARGIN, top + 12, row.shortName);
-        setFont(fontSmall);
-        printAt(MARGIN, top + 54, row.longName);
-        printBold(right, top + 54, row.distance.empty() ? row.hops : row.distance, RIGHT);
-        drawLine(MARGIN, top + 83, right - 1, top + 83, BLACK);
-    }
+    for (uint8_t i = 0; i < 3 && i < s.heard.size(); i++)
+        drawHeardRow(MARGIN, 496 + i * 84, innerW, s.heard[i]);
 
     drawModeControl(right - 168, navTop() - 1 - 17 - 50, 168, 50);
     drawNav();
@@ -419,7 +416,7 @@ void InkHUD::T5HomeApplet::renderConsole(const Status &s)
     // then the battery voltage, only while the line overflows
     std::string nodeId = s.nodeId;
     std::string lora = "LORA " + s.region + " " + s.preset;
-    std::string batt = s.battery.empty() ? "" : join("BATT " + s.battery, s.voltage);
+    std::string batt = powerLabel(true);
     auto chips = [&]() {
         std::vector<std::string> list;
         for (const std::string &chip : {lora, s.gps, s.bt, batt, s.clock}) {
@@ -446,8 +443,8 @@ void InkHUD::T5HomeApplet::renderConsole(const Status &s)
         nodeId.clear();
     if (overflows())
         lora = "LORA " + s.region;
-    if (overflows() && !batt.empty())
-        batt = "BATT " + s.battery;
+    if (overflows())
+        batt = powerLabel(true, false);
 
     if (!nodeId.empty())
         printAt(nameRight + 14, baseline - fontSmall.heightAboveCursor(), nodeId);
@@ -499,8 +496,9 @@ void InkHUD::T5HomeApplet::renderConsole(const Status &s)
     printBold(heardLeft + heardW, 76, to_string(s.heardCount), RIGHT);
     for (uint8_t i = 0; i < s.heard.size(); i++) {
         const int16_t top = 105 + i * rowH;
-        printBold(heardLeft, top + 2, s.heard[i].shortName);
-        printAt(heardLeft + heardW, top + 2, join(s.heard[i].distance, s.heard[i].hops), RIGHT);
+        const T5NodesApplet::Row &row = s.heard[i];
+        printBold(heardLeft, top + 2, row.shortName);
+        printAt(heardLeft + heardW, top + 2, join(row.distance, row.hops < 0 ? "" : hopsString(row.hops)), RIGHT);
         drawLine(heardLeft, top + rowH - 1, heardLeft + heardW - 1, top + rowH - 1, BLACK);
     }
 
@@ -515,20 +513,6 @@ void InkHUD::T5HomeApplet::renderConsole(const Status &s)
     drawNav();
 }
 
-void InkHUD::T5HomeApplet::openApplet(const std::string &name)
-{
-    const int8_t index = indexOf(name.c_str());
-    if (index >= 0)
-        inkhud->showApplet(index, EInk::UpdateTypes::UNSPECIFIED, true); // Ignores inactive applets, without a refresh
-}
-
-void InkHUD::T5HomeApplet::openLatest()
-{
-    const StoredMessage *m = latestIncoming();
-    if (m)
-        openApplet(m->type == MessageType::DM_TO_US ? "DMs" : "Channel " + to_string(m->channelIndex));
-}
-
 bool InkHUD::T5HomeApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
 {
     if (longPress)
@@ -541,26 +525,18 @@ bool InkHUD::T5HomeApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
     if (handleNavTap(tx, ty))
         return true;
 
+    // The message regions are MSGS targets, so they consume their tap and do nothing until T5 Messaging
+    // exists (Redesign 8.4). Only the heard column, which is NODES, leads anywhere in this phase.
     if (isConsole()) {
         if (tx >= navWidth() && ty >= navTop())
             t5ToggleMode();
-        else if (ty >= 76 && ty < 292 && tx < 386)
-            openLatest();
         else if (ty >= 76 && ty < 292 && tx >= 666)
-            openApplet("Nodes");
-        else if (ty >= 316 && ty < 404)
-            openApplet(tx < 464 ? "Channel 0" : "DMs");
+            openDestination(NODES);
     } else {
         if (ty >= navTop() - 68 && ty < navTop() - 18 && tx >= width() - MARGIN - 168 && tx < width() - MARGIN) // Mode control
             t5ToggleMode();
-        else if (ty >= 152 && ty < 268)
-            openLatest();
-        else if (ty >= 288 && ty < 372)
-            openApplet("Channel 0");
-        else if (ty >= 372 && ty < 456)
-            openApplet("DMs");
         else if (ty >= 468 && ty < 748)
-            openApplet("Nodes");
+            openDestination(NODES);
     }
 
     // Consume every tap: the button fallback would cycle applets

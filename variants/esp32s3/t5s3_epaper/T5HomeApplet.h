@@ -12,6 +12,7 @@ One applet, two compositions picked from the live dimensions: Carry (portrait) a
 #include "configuration.h"
 
 #include "./T5Applet.h"
+#include "./T5NodesApplet.h"
 
 #include "MessageStore.h"
 #include "concurrency/OSThread.h"
@@ -36,15 +37,11 @@ class T5HomeApplet : public T5Applet, public concurrency::OSThread
 
     int32_t runOnce() override;
 
-    struct HeardRow {
-        std::string shortName, longName, distance, hops;
-    };
-
     // Everything Home shows, read fresh on each render. Strings are already parse()d
     struct Status {
-        std::string shortName, nodeId, clock, battery, voltage, region, preset, gps, bt;
+        std::string shortName, nodeId, clock, region, preset, gps, bt;
         uint16_t nodes = 0, heardCount = 0, direct = 0, oneHop = 0, multiHop = 0, channelUtil = 0;
-        std::vector<HeardRow> heard; // Heard in the last 10 minutes, most recent first, at most six
+        std::vector<T5NodesApplet::Row> heard; // Heard in the last 10 minutes, most recent first, at most six
 
         const StoredMessage *latest = nullptr; // Most recent visible incoming message
         std::string latestKind, latestSender, latestSenderLong, latestClock, latestText;
@@ -60,8 +57,7 @@ class T5HomeApplet : public T5Applet, public concurrency::OSThread
     void printClipped(int16_t left, int16_t top, uint16_t w, int16_t bottom, const std::string &text);
     std::string senderName(NodeNum num);
     const StoredMessage *latestIncoming(bool dmOnly = false);
-    void openLatest();
-    void openApplet(const std::string &name);
+    void drawHeardRow(int16_t left, int16_t top, uint16_t w, const T5NodesApplet::Row &row);
 
     int onReceiveTextMessage(const meshtastic_MeshPacket *p);
     CallbackObserver<T5HomeApplet, const meshtastic_MeshPacket *> textMessageObserver =
