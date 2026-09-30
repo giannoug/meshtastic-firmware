@@ -43,6 +43,7 @@ class Renderer : protected concurrency::OSThread
 
     // Wait for an update to complete
     void awaitUpdate();
+    bool isUpdating(); // Non-blocking: is the panel still driving the previous update?
 
     // Receives pixel output from an applet (via a tile, which translates the coordinates)
     void handlePixel(int16_t x, int16_t y, Color c);

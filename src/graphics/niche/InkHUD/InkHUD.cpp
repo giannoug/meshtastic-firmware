@@ -492,6 +492,11 @@ void InkHUD::InkHUD::awaitUpdate()
     renderer->awaitUpdate();
 }
 
+bool InkHUD::InkHUD::isUpdating()
+{
+    return renderer->isUpdating();
+}
+
 // Ask the window manager to potentially bring a different user applet to foreground
 // An applet will be brought to foreground if it has just received new and relevant info
 // For Example: AllMessagesApplet has just received a new text message

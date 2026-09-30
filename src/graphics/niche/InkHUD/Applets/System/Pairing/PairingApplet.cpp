@@ -58,7 +58,9 @@ int InkHUD::PairingApplet::onBluetoothStatusUpdate(const meshtastic::Status *sta
     const auto *btStatus = static_cast<const meshtastic::BluetoothStatus *>(status);
 
     // When pairing begins
-    if (btStatus->getConnectionState() == meshtastic::BluetoothStatus::ConnectionState::PAIRING) {
+    if (inkhud->replacesStockSystemSurfaces) {
+        // The variant shows its own pairing surface. Stay in the background, whatever happens.
+    } else if (btStatus->getConnectionState() == meshtastic::BluetoothStatus::ConnectionState::PAIRING) {
         // Store the passkey for rendering
         passkey = btStatus->getPasskey();
 

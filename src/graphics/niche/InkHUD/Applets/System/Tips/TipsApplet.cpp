@@ -41,6 +41,10 @@ InkHUD::TipsApplet::TipsApplet()
     if (needsRegion)
         tipQueue.push_back(Tip::PICK_REGION);
 
+    // The tips describe the shared UI, so a variant which replaces it suppresses them (System UI 00)
+    if (inkhud->replacesStockSystemSurfaces)
+        tipQueue.clear();
+
     if (!tipQueue.empty())
         bringToForeground();
 }

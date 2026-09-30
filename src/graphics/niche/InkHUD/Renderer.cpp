@@ -103,6 +103,14 @@ void InkHUD::Renderer::forceUpdate(Drivers::EInk::UpdateTypes type, bool all, bo
 }
 
 // Wait for any in-progress display update to complete before continuing
+// Whether the panel is still working through the previous update. awaitUpdate() blocks until it is not;
+// this only asks, for callers which have to stay responsive - such as a touch gate that may not arm a
+// new surface until its refresh has actually finished.
+bool InkHUD::Renderer::isUpdating()
+{
+    return driver->busy();
+}
+
 void InkHUD::Renderer::awaitUpdate()
 {
     if (driver->busy()) {
@@ -480,9 +488,10 @@ void InkHUD::Renderer::renderSystemApplets()
 
         assert(sa->getTile());
 
-        // Clear the tile unless the applet wants to draw over its previous render
-        // or everything is getting re-rendered anyways
-        if (sa->wantsFullRender() && !renderAll)
+        // Clear the tile unless the applet wants to draw over its previous render,
+        // or everything is getting re-rendered anyways,
+        // or the applet occupies only part of its tile and blanks that part itself
+        if (sa->wantsFullRender() && !renderAll && !sa->clearsOwnRegion)
             clearTile(sa->getTile());
 
         // uint32_t start = millis();

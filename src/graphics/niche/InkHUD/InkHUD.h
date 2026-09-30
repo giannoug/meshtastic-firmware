@@ -67,6 +67,13 @@ class InkHUD
     void setRenderHoldProvider(RenderHoldProvider provider);
     bool isRenderHeld() const;
 
+    // Set by a variant which draws its own notification, pairing, touch-status and shutdown / reboot
+    // surfaces, and must not have the shared ones appear as well. The applets are still created, so
+    // nothing that looks them up by name has to change; they simply never come to the foreground, and
+    // LogoApplet stops drawing the shutdown and reboot screens. The boot splash is unaffected.
+    // Default false: every other board behaves exactly as before.
+    bool replacesStockSystemSurfaces = false;
+
     // Handle user-button press
     // - connected to an input source, in variant nicheGraphics.h
 
@@ -122,6 +129,7 @@ class InkHUD
     void forceUpdate(Drivers::EInk::UpdateTypes type = Drivers::EInk::UpdateTypes::UNSPECIFIED, bool all = false,
                      bool async = true);
     void awaitUpdate();
+    bool isUpdating(); // Non-blocking: is the panel still driving the previous update?
 
     // (Re)configuring WindowManager
 

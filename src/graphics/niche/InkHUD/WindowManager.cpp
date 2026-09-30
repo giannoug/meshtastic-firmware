@@ -630,7 +630,7 @@ void InkHUD::WindowManager::placeSystemTiles()
         inkhud->getSystemApplet("TouchStatus")
             ->getTile()
             ->setRegion(0, inkhud->height() - touchStatusH, inkhud->width(), touchStatusH);
-        if (inkhud->isTouchEnabled())
+        if (inkhud->isTouchEnabled() || inkhud->replacesStockSystemSurfaces)
             inkhud->getSystemApplet("TouchStatus")->sendToBackground();
         else
             inkhud->getSystemApplet("TouchStatus")->bringToForeground();

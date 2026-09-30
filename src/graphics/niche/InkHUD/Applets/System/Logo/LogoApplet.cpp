@@ -126,6 +126,9 @@ void InkHUD::LogoApplet::onBackground()
 // Begin displaying the screen which is shown at shutdown
 void InkHUD::LogoApplet::onShutdown()
 {
+    if (inkhud->replacesStockSystemSurfaces)
+        return; // The variant draws its own final image, and only one of us may
+
     bringToForeground();
 
     textLeft = "";
@@ -169,6 +172,9 @@ void InkHUD::LogoApplet::onApplyingChanges()
 
 void InkHUD::LogoApplet::onReboot()
 {
+    if (inkhud->replacesStockSystemSurfaces)
+        return; // The variant draws its own restarting screen
+
     bringToForeground();
 
     textLeft = "";
