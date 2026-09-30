@@ -1,6 +1,7 @@
 #if defined(T5_S3_EPAPER_PRO) && defined(MESHTASTIC_INCLUDE_INKHUD)
 
 #include "./T5NodesApplet.h"
+#include "./T5ComposeTask.h"
 #include "./T5NodeDetailApplet.h"
 
 #include "gps/GeoCoord.h"
@@ -15,6 +16,21 @@ namespace
 constexpr const char *CHEVRON = "\x9B"; // Win-1253 single right angle quote: parse() has no remap for U+203A
 } // namespace
 
+// Pick mode is entered by the recipient picker, and left by its Back target or
+// by the task closing. The list, its sort and its paging are the frozen Nodes
+// ones: only the header and the nav band differ.
+bool InkHUD::T5NodesApplet::openPickMode()
+{
+    InkHUD *hud = InkHUD::getInstance();
+    const int8_t i = indexOf("Nodes");
+    if (i < 0)
+        return false;
+    T5NodesApplet *applet = static_cast<T5NodesApplet *>(hud->userApplets[i]);
+    applet->picking = true;
+    applet->firstRow = 0;
+    return hud->showApplet(i, EInk::UpdateTypes::UNSPECIFIED, true);
+}
+
 void InkHUD::T5NodesApplet::onActivate()
 {
     setInputsSubscribed(NAV_UP | NAV_DOWN, true); // Vertical swipes page the list
@@ -24,6 +40,13 @@ void InkHUD::T5NodesApplet::onDeactivate()
 {
     setInputsSubscribed(NAV_UP | NAV_DOWN, false);
     signals.clear();
+}
+
+// Leaving the list leaves pick mode with it: a later NODES tap must get the
+// ordinary screen back
+void InkHUD::T5NodesApplet::onBackground()
+{
+    picking = false;
 }
 
 bool InkHUD::T5NodesApplet::wantPacket(const meshtastic_MeshPacket *p)
@@ -143,25 +166,40 @@ void InkHUD::T5NodesApplet::onRender(bool full)
         renderCarry(rows, nodes.size(), heard);
 }
 
+// "< PICK RECIPIENT": the whole band is the way back to the picker, so there is
+// no sort control here
+void InkHUD::T5NodesApplet::drawPickHeader()
+{
+    const bool console = isConsole();
+    const int16_t bandH = console ? CONSOLE_BAND : 79;
+    setFont(fontMedium);
+    printBold(MARGIN, (bandH - fontMedium.lineHeight()) / 2, std::string(BACK) + " PICK RECIPIENT");
+    drawLine(0, bandH, width() - 1, bandH, BLACK);
+}
+
 void InkHUD::T5NodesApplet::renderCarry(const std::vector<Row> &rows, uint16_t nodes, uint16_t heard)
 {
     const int16_t right = width() - MARGIN;
 
-    // Header: title, both counts, and the sort control at the right edge, sharing one 79 px band.
-    // The counts are clipped to the gap between them rather than allowed to run under the box
-    const int16_t sortLeft = boxedLabel("LAST HEARD", 79);
-    setFont(fontLarge);
-    printBold(MARGIN, 14, "NODES");
-    int16_t x = MARGIN + getTextWidth("NODES") + 12;
-    const int16_t countsTop = 14 + fontLarge.heightAboveCursor() - fontSmall.heightAboveCursor();
-    setFont(fontSmall);
-    const std::string nodesText = to_string(nodes) + " NODES", heardText = to_string(heard) + " HEARD 10M";
-    setCrop(x, 0, sortLeft - 12 - x, 79);
-    printBold(x, countsTop, nodesText);
-    x += getTextWidth(nodesText) + 12;
-    printAt(x, countsTop, heardText);
-    resetCrop();
-    drawLine(0, 79, width() - 1, 79, BLACK);
+    if (picking) {
+        drawPickHeader();
+    } else {
+        // Header: title, both counts, and the sort control at the right edge, sharing one 79 px band.
+        // The counts are clipped to the gap between them rather than allowed to run under the box
+        const int16_t sortLeft = boxedLabel("LAST HEARD", 79);
+        setFont(fontLarge);
+        printBold(MARGIN, 14, "NODES");
+        int16_t x = MARGIN + getTextWidth("NODES") + 12;
+        const int16_t countsTop = 14 + fontLarge.heightAboveCursor() - fontSmall.heightAboveCursor();
+        setFont(fontSmall);
+        const std::string nodesText = to_string(nodes) + " NODES", heardText = to_string(heard) + " HEARD 10M";
+        setCrop(x, 0, sortLeft - 12 - x, 79);
+        printBold(x, countsTop, nodesText);
+        x += getTextWidth(nodesText) + 12;
+        printAt(x, countsTop, heardText);
+        resetCrop();
+        drawLine(0, 79, width() - 1, 79, BLACK);
+    }
 
     // Long names and metadata share one column, just clear of the widest short name on this page
     const int16_t barsLeft = width() - 38 - SIGNAL_W; // Frozen 38 px inset from the right edge
@@ -193,25 +231,30 @@ void InkHUD::T5NodesApplet::renderCarry(const std::vector<Row> &rows, uint16_t n
         drawLine(0, top + rowHeight() - 1, width() - 1, top + rowHeight() - 1, BLACK);
     }
 
-    drawNav();
+    if (!picking)
+        drawNav(); // A task owns the screen in pick mode, so it has no nav band
 }
 
 void InkHUD::T5NodesApplet::renderConsole(const std::vector<Row> &rows, uint16_t nodes, uint16_t heard, uint16_t direct)
 {
-    // Header: title, three counts, sort label, centered in a 63 px band
-    setFont(fontLarge);
-    const int16_t titleTop = (CONSOLE_BAND - (fontLarge.heightAboveCursor() + fontLarge.heightBelowCursor())) / 2;
-    printBold(MARGIN, titleTop, "NODES");
-    int16_t x = MARGIN + getTextWidth("NODES") + 24;
-    const int16_t countsTop = titleTop + fontLarge.heightAboveCursor() - fontSmall.heightAboveCursor();
-    setFont(fontSmall);
-    for (const std::string &count :
-         {to_string(nodes) + " NODES", to_string(heard) + " HEARD 10M", to_string(direct) + " DIRECT"}) {
-        printAt(x, countsTop, count);
-        x += getTextWidth(count) + 34;
+    if (picking) {
+        drawPickHeader();
+    } else {
+        // Header: title, three counts, sort label, centered in a 63 px band
+        setFont(fontLarge);
+        const int16_t titleTop = (CONSOLE_BAND - (fontLarge.heightAboveCursor() + fontLarge.heightBelowCursor())) / 2;
+        printBold(MARGIN, titleTop, "NODES");
+        int16_t x = MARGIN + getTextWidth("NODES") + 24;
+        const int16_t countsTop = titleTop + fontLarge.heightAboveCursor() - fontSmall.heightAboveCursor();
+        setFont(fontSmall);
+        for (const std::string &count :
+             {to_string(nodes) + " NODES", to_string(heard) + " HEARD 10M", to_string(direct) + " DIRECT"}) {
+            printAt(x, countsTop, count);
+            x += getTextWidth(count) + 34;
+        }
+        boxedLabel("LAST HEARD", CONSOLE_BAND);
+        drawLine(0, 63, width() - 1, 63, BLACK);
     }
-    boxedLabel("LAST HEARD", CONSOLE_BAND);
-    drawLine(0, 63, width() - 1, 63, BLACK);
 
     // Column headings
     constexpr int16_t nameX = 16, longX = 120, heardX = 366, hopsX = 476, snrX = 564, distX = 652, bearingX = 750;
@@ -249,7 +292,8 @@ void InkHUD::T5NodesApplet::renderConsole(const std::vector<Row> &rows, uint16_t
         drawLine(0, top + rowHeight() - 1, width() - 1, top + rowHeight() - 1, BLACK);
     }
 
-    drawNav();
+    if (!picking)
+        drawNav();
 }
 
 bool InkHUD::T5NodesApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
@@ -261,22 +305,45 @@ bool InkHUD::T5NodesApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
     const int16_t tx = x - getTile()->getLeft();
     const int16_t ty = y - getTile()->getTop();
 
-    if (handleNavTap(tx, ty))
+    if (!picking && handleNavTap(tx, ty))
         return true;
+
+    if (picking && ty < (isConsole() ? CONSOLE_BAND : 79)) {
+        picking = false;
+        T5ComposeTask::backToPicker(); // Structural Back: the picker, never Home
+        return true;
+    }
 
     if (ty >= rowsTop() && (ty - rowsTop()) / rowHeight() < (int16_t)shown.size()) {
         const NodeNum selected = shown[(ty - rowsTop()) / rowHeight()];
-        if (pick)
-            pick(selected);
-        else if (!T5NodeDetailApplet::open(selected))
-            LOG_WARN("T5 Nodes: can't open Node detail for 0x%08x", selected); // Stay on Nodes
+        if (picking) {
+            picking = false;
+            T5ComposeTask::nodePicked(selected);
+        } else if (!T5NodeDetailApplet::open(selected))
+            LOG_WARN("T5 Nodes: can't open Node detail for 0x%08x",
+                     selected); // Stay on Nodes
     }
 
     // Consume every tap: the button fallback would cycle applets
     return true;
 }
 
-// Swipes arrive as nav events, with the shared menu's and waypoint list's direction: down moves forward
+void InkHUD::T5NodesApplet::pageDown()
+{
+    const int8_t i = indexOf("Nodes");
+    if (i >= 0)
+        static_cast<T5NodesApplet *>(InkHUD::getInstance()->userApplets[i])->onNavDown();
+}
+
+void InkHUD::T5NodesApplet::pageUp()
+{
+    const int8_t i = indexOf("Nodes");
+    if (i >= 0)
+        static_cast<T5NodesApplet *>(InkHUD::getInstance()->userApplets[i])->onNavUp();
+}
+
+// Swipes arrive as nav events, with the shared menu's and waypoint list's
+// direction: down moves forward
 void InkHUD::T5NodesApplet::onNavDown()
 {
     const uint16_t next = firstRow - firstRow % rowsPerPage() + rowsPerPage();

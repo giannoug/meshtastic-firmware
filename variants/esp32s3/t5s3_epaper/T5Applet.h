@@ -11,6 +11,8 @@ Draws and hit-tests the six-destination nav bar: HOME · MSGS · NODES · MAP ·
 
 #include "configuration.h"
 
+#include "./T5Text.h"
+
 #include "graphics/niche/InkHUD/Applet.h"
 
 namespace NicheGraphics::InkHUD
@@ -25,17 +27,27 @@ class T5Applet : public Applet
     static constexpr uint16_t CONSOLE_SLOT_W = 150; // Console: trailing mode slot, outside the six nav cells
     static constexpr uint16_t SIGNAL_W = 41;        // Four 8 px bars, 3 px apart
     static constexpr uint16_t SIGNAL_H = 22;
-    static constexpr int16_t MARGIN = 16;       // The frozen side gutter, clear of the panel's rejected margin
-    static constexpr int16_t CONSOLE_BAND = 63; // Console header band, above the first rule
-    static constexpr const char *DASH = "\x97"; // Win-1253 em dash: the value we cannot supply
-    static constexpr const char *SEP = "\xB7";  // Win-1253 middle dot: the frozen separator
+    static constexpr int16_t MARGIN = 16;           // The frozen side gutter, clear of the panel's rejected margin
+    static constexpr int16_t CONSOLE_BAND = 63;     // Console header band, above the first rule
+    static constexpr const char *DASH = "\x97";     // Win-1253 em dash: the value we cannot supply
+    static constexpr const char *SEP = "\xB7";      // Win-1253 middle dot: the frozen separator
+    static constexpr const char *BACK = "\x8B";     // Win-1253 single left angle quote: parse() has no U+2039
+    static constexpr const char *FWD = "\x9B";      // ...and no U+203A
+    static constexpr const char *ELLIPSIS = "\x85"; // Win-1253 horizontal ellipsis (V14: present in all three fonts)
 
-    static int8_t indexOf(const char *name); // Index in InkHUD::userApplets by registered name, or -1
+    using Convo = T5MessageModel::Convo;
 
-    // "SHORT \x97 Long name", or whichever one we have. Shared with the T5 system layer.
+    static int8_t indexOf(const char *name); // Index in InkHUD::userApplets by
+                                             // registered name, or -1
+
+    // "SHORT \x97 Long name", or whichever one we have. Shared with the T5 system
+    // layer.
     static std::string join(const std::string &a, const std::string &b);
 
-    void onForeground() override; // Hides the shared battery icon: every T5 screen draws its own battery status
+    static std::string hopsString(uint8_t hops); // "direct", "1 hop", "3 hops". Shared with the composer
+
+    void onForeground() override; // Hides the shared battery icon: every T5
+                                  // screen draws its own battery status
 
   protected:
     enum Destination : uint8_t { HOME, MSGS, NODES, MAP, MENU, APPS };
@@ -55,10 +67,15 @@ class T5Applet : public Applet
     // Boxed label at the right edge of a header band, centred in it. Returns its left edge, so a slot
     // that is only sometimes filled still reserves its width
     int16_t boxedLabel(const char *text, int16_t bandH, bool draw = true);
-    void strikeThrough(int16_t left, int16_t centerY, uint16_t w); // The 2 px unavailable rule, inset 14 px
+    void strikeThrough(int16_t left, int16_t centerY,
+                       uint16_t w); // The 2 px unavailable rule, inset 14 px
+
+    // The frozen paging triangles. No Win-1253 glyph exists for either, and a
+    // large font for two shapes would be worse than drawing them (V14) - as the
+    // mode control already draws its arrows.
+    void drawTriangle(int16_t centerX, int16_t centerY, bool up);
 
     static bool heardRecently(const meshtastic_NodeInfoLite *node);
-    static std::string hopsString(uint8_t hops);                          // "direct", "1 hop", "3 hops"
     static std::string sinceString(uint32_t secs);                        // "now", "5 min", "3 h", "2 d"
     static std::string agoString(uint32_t secs);                          // "now", "5 min ago", ...
     static std::string powerLabel(bool console, bool withVoltage = true); // Four states, no FULL

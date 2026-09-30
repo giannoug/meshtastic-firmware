@@ -25,6 +25,7 @@ class T5NodesApplet : public T5Applet, public MeshModule
 
     void onActivate() override;
     void onDeactivate() override;
+    void onBackground() override;
     void onRender(bool full) override;
     bool onTouchPoint(uint16_t x, uint16_t y, bool longPress) override;
     void onNavUp() override;
@@ -45,11 +46,16 @@ class T5NodesApplet : public T5Applet, public MeshModule
 
     Row readRow(meshtastic_NodeInfoLite *node);
 
-    // Messaging Final 05: the recipient picker's ALL NODES row opens this same list in pick mode, where a
-    // row tap addresses the composer instead of opening Node detail. Normal behaviour is untouched while
-    // the callback is null, which is always, until T5 Messaging exists.
-    using PickCallback = void (*)(NodeNum);
-    void setPickMode(PickCallback onPick) { pick = onPick; }
+    // Messaging Final 05: the recipient picker's ALL NODES row opens this same
+    // list in pick mode, where a row tap addresses the composer instead of
+    // opening Node detail, the header becomes the way back to the picker, and the
+    // nav bar goes away because a task owns the screen. Normal behaviour is
+    // untouched whenever pick mode is not running.
+    static bool openPickMode(); // Show the list as the picker's ALL NODES page
+    // In pick mode the compose task holds the input claim, so swipes arrive there
+    // and are handed back here
+    static void pageDown();
+    static void pageUp();
 
   private:
     Destination currentDestination() override { return NODES; }
@@ -67,8 +73,10 @@ class T5NodesApplet : public T5Applet, public MeshModule
     std::vector<meshtastic_NodeInfoLite *> sortedNodes();
     void renderCarry(const std::vector<Row> &rows, uint16_t nodes, uint16_t heard);
     void renderConsole(const std::vector<Row> &rows, uint16_t nodes, uint16_t heard, uint16_t direct);
+    void drawPickHeader(); // "< PICK RECIPIENT", in place of the NODES header and
+                           // its sort control
 
-    PickCallback pick = nullptr;
+    bool picking = false;           // Standing in for the recipient picker
     std::vector<Reception> signals; // Last direct radio reception of each node, this session
     std::vector<NodeNum> shown;     // Nodes on screen, top to bottom: what a row tap opens
     uint16_t firstRow = 0;          // List index of the top row on screen

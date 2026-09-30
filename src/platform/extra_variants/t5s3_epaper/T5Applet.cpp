@@ -82,13 +82,14 @@ std::string InkHUD::T5Applet::powerLabel(bool console, bool withVoltage)
     return join("BATT " + percent, volts);
 }
 
-// Only Home and Nodes have a native T5 screen. The other four keep their cell, struck through, until
-// their T5 destinations are built: pointing them at a stock InkHUD applet would drop the user into a
-// surface with no T5 navigation and no way back (Redesign 8.4; Apps 05 retires the App Switcher on T5,
-// Menu Settings 00 the shared menu).
+// Home, Messages and Nodes have a native T5 screen. The other three keep their
+// cell, struck through, until their T5 destinations are built: pointing them at
+// a stock InkHUD applet would drop the user into a surface with no T5
+// navigation and no way back (Redesign 8.4; Apps 05 retires the App Switcher on
+// T5, Menu Settings 00 the shared menu).
 int8_t InkHUD::T5Applet::destinationApplet(Destination d)
 {
-    const char *name = d == HOME ? "Home" : d == NODES ? "Nodes" : nullptr;
+    const char *name = d == HOME ? "Home" : d == NODES ? "Nodes" : d == MSGS ? "Messages" : nullptr;
     if (!name)
         return -1;
     const int8_t i = indexOf(name);
@@ -185,6 +186,17 @@ void InkHUD::T5Applet::drawSignal(int16_t left, int16_t bottom, SignalStrength s
             fillRect(x, bottom - heights[i], 8, heights[i], BLACK);
         else
             drawLine(x, bottom - 1, x + 7, bottom - 1, BLACK);
+    }
+}
+
+// A filled triangle, 20 px wide and 10 tall, centred on the point given
+void InkHUD::T5Applet::drawTriangle(int16_t centerX, int16_t centerY, bool up)
+{
+    constexpr int16_t halfW = 10, h = 10;
+    for (int16_t row = 0; row < h; row++) {
+        const int16_t half = halfW - halfW * row / h;
+        const int16_t y = up ? centerY + h / 2 - row : centerY - h / 2 + row;
+        fillRect(centerX - half, y, 2 * half + 1, 1, BLACK);
     }
 }
 
