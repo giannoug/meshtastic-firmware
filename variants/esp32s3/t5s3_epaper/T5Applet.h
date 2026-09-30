@@ -28,6 +28,7 @@ class T5Applet : public Applet
     static constexpr int16_t MARGIN = 16;       // The frozen side gutter, clear of the panel's rejected margin
     static constexpr int16_t CONSOLE_BAND = 63; // Console header band, above the first rule
     static constexpr const char *DASH = "\x97"; // Win-1253 em dash: the value we cannot supply
+    static constexpr const char *SEP = "\xB7";  // Win-1253 middle dot: the frozen separator
 
     static int8_t indexOf(const char *name); // Index in InkHUD::userApplets by registered name, or -1
 

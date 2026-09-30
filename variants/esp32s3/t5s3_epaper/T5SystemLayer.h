@@ -74,7 +74,8 @@ class T5SystemLayer : public SystemApplet, public concurrency::OSThread
         int16_t hitTop, hitH;          // Button hit rects, taller than the visible buttons
         int16_t hitLeft, hitRight;     // Outer edges of the pair
         int16_t hitSplit;              // Where the two hit rects meet: no dead zone, no overlap
-        int16_t pad;                   // Card body side padding
+        int16_t pad;                   // Card and terminal body side padding
+        int16_t headerH;               // Frozen header band, as this mode's screens use it
     };
     const Geometry &geometry() const;
 
@@ -86,6 +87,10 @@ class T5SystemLayer : public SystemApplet, public concurrency::OSThread
     void onTimeoutGateClear(); // A real user wake: reconcile, then let one frame
                                // be drawn
     void onTouchPreferenceChanged();
+
+    // Carry <-> Console. Our tile spans the screen, and updateLayout() has just swapped its width and
+    // height, so the region is re-set here. Every coordinate moved, so the gate re-arms too (G6).
+    void onModeChanged();
 
     // Whether a surface is covering screen content right now. A T5 screen
     // underneath asks this before a timed redraw of its own: it keeps its state
@@ -141,6 +146,8 @@ class T5SystemLayer : public SystemApplet, public concurrency::OSThread
     uint32_t conversationIds[CONVERSATION_CAP] = {};
 
     void clearAggregate();
+    void clearInfo();
+    void raiseInfo(Info kind);
     void noteConversation(uint32_t id);
 
     // --- the lock band
@@ -174,6 +181,7 @@ class T5SystemLayer : public SystemApplet, public concurrency::OSThread
     uint32_t messageExpiresAtAwakeMs = 0; // 0 = no timeout (Console, decision 3)
     uint32_t messageBatchUntilMs = 0;     // Coalesce window: redraw at most once per 10 s
     bool messagePending = false;          // Aggregate changed but the batch window has not closed
+    bool messagePendingDM = false;        // ...and a DM is part of what is owed, so it may redraw in the dark
 
     uint32_t infoExpiresAtAwakeMs = 0; // Once shown
     uint32_t infoDropAtMs = 0;         // Never shown: independent 10 min lifetime
@@ -203,29 +211,23 @@ class T5SystemLayer : public SystemApplet, public concurrency::OSThread
                                  // and tile
     void requestSurfaceUpdate(); // One request for the whole layer, never one per
                                  // surface
+    void restoreCoveredScreen(); // A surface has gone: reconcile, re-arm, bring the screen back (R1)
 
     bool messageVisible() const;
     bool infoVisible() const;
     bool bandVisible() const;
-    int16_t surfaceTop() const; // Top of the union of everything we draw, or -1 for nothing
 
     // --- drawing
     // ----------------------------------------------------------------------------
 
-    // Header band heights, as the frozen headers use them in each mode
-    static constexpr int16_t CARRY_HEADER_H = 100;
-    static constexpr int16_t CONSOLE_HEADER_H = 64;
-
     void drawBand();
     void drawBanner();
-    void drawBannerButton(int16_t left, int16_t w,
-                          const char *label); // Outlined, 2 px
+    void drawBannerButton(int16_t left, int16_t w, const std::string &label); // Outlined, 2 px
     void drawCard();
     void drawCardRow(int16_t top, const char *label, const std::string &value);
     void drawTerminal();
     void drawTerminalRow(int16_t top, const char *label, const std::string &value);
-    void drawButtonBand(const char *left,
-                        const char *right); // Card band: 1 or 2 buttons
+    void drawButtonBand(const char *verb); // A card's single-verb band, in the nav position
     void clearSurface(int16_t top, int16_t bottom);
 
     void printBold(int16_t x, int16_t y,

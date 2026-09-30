@@ -168,6 +168,10 @@ void t5SetMode(T5Mode mode)
     rotation = static_cast<uint8_t>(mode);
     // No joystick.alignment sync needed: TouchInkHUDBridge re-derives it from rotation on every event.
     inkhud->updateLayout(); // Rebuilds tiles, then queues an async FAST redraw
+    // The system layer owns its own full-screen tile, which updateLayout does not place: its region and
+    // its touch gate both follow the new orientation.
+    if (auto *layer = NicheGraphics::InkHUD::T5SystemLayer::getIfBegun())
+        layer->onModeChanged();
     // Every pixel moved. A blocking FULL merges with that queued FAST (DisplayHealth::prioritize),
     // so the panel does exactly one FULL update and the async render finds nothing left to do.
     inkhud->forceUpdate(NicheGraphics::Drivers::EInk::UpdateTypes::FULL, true, false);

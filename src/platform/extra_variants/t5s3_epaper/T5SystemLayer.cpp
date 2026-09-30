@@ -45,6 +45,7 @@ const InkHUD::T5SystemLayer::Geometry CARRY = {
     /* hitLeft */ 8,       /* hitRight */ 500,
     /* hitSplit */ 254,
     /* pad */ 24,
+    /* headerH */ 100,
 };
 const InkHUD::T5SystemLayer::Geometry CONSOLE = {
     /* bannerTop */ 308,
@@ -69,9 +70,15 @@ const InkHUD::T5SystemLayer::Geometry CONSOLE = {
     /* hitRight */ 920,
     /* hitSplit */ 768,
     /* pad */ 16,
+    /* headerH */ 64,
 };
 
 // 1970-01-01 was a Thursday, so the epoch day count starts 4 days into the week
+const char *const CHEVRON = "\x9B"; // Win-1253 single right angle quote: parse() has no remap for U+203A
+
+const char *const CARD_PAIRING_LABEL = "BLUETOOTH \xB7 PAIRING";
+const char *const CARD_CRITICAL_LABEL = "BATTERY \xB7 CRITICAL";
+
 const char *const WEEKDAYS[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
 // The T5 foreground context the frozen suppression rules are written against
@@ -164,7 +171,7 @@ bool InkHUD::T5SystemLayer::infoVisible() const
 {
     if (terminal != Terminal::NONE || cardVisible != Card::NONE || info == Info::NONE)
         return false;
-    if (!messages.empty() && messageVisible())
+    if (messageVisible())
         return false; // One banner slot: the message banner holds it (K8)
     return !foregroundIsTask();
 }
@@ -186,23 +193,6 @@ bool InkHUD::T5SystemLayer::bandVisible() const
     return T5UiGate::snapshotHeld() || !t5TouchPreferenceEnabled();
 }
 
-int16_t InkHUD::T5SystemLayer::surfaceTop() const
-{
-    if (terminal != Terminal::NONE)
-        return 0;
-
-    const Geometry &g = geometry();
-    int16_t top = -1;
-    if (cardVisible != Card::NONE)
-        top = g.cardTop;
-    else if (messageVisible() || infoVisible())
-        top = g.bannerTop;
-
-    if (top < 0 && bandVisible())
-        top = g.bandTop - 2; // Alone in the nav slot: include the rule above it
-    return top;
-}
-
 // One request for the whole layer. Surfaces never request individually: a
 // revealed surface and the one it replaces are a single redraw (System UI 18).
 void InkHUD::T5SystemLayer::requestSurfaceUpdate()
@@ -210,6 +200,19 @@ void InkHUD::T5SystemLayer::requestSurfaceUpdate()
     // full=false: the Renderer must not clear our tile. Each surface clears its
     // own rect in onRender.
     requestUpdate(EInk::UpdateTypes::UNSPECIFIED, false);
+}
+
+// A surface has gone: the screen it covered must come back showing exactly what it would draw now,
+// including anything that changed underneath while it was hidden (R1). One render-all does that, and
+// also draws whatever was revealed behind the surface - one request, never two.
+//
+// While gated there is no live frame to rebuild: the snapshot stays, and the wake frame settles it.
+void InkHUD::T5SystemLayer::restoreCoveredScreen()
+{
+    reconcile();
+    disarm(); // Whatever is revealed next is a new appearance (G7)
+    if (!T5UiGate::snapshotHeld())
+        inkhud->forceUpdate(EInk::UpdateTypes::UNSPECIFIED, true);
 }
 
 void InkHUD::T5SystemLayer::reconcile()
@@ -228,10 +231,8 @@ void InkHUD::T5SystemLayer::reconcile()
     // expire in the dark.
     if (!messages.empty() && messageExpiresAtAwakeMs != 0 && awakeMs >= messageExpiresAtAwakeMs)
         clearAggregate();
-    if (info != Info::NONE && infoExpiresAtAwakeMs != 0 && awakeMs >= infoExpiresAtAwakeMs) {
-        info = Info::NONE;
-        infoExpiresAtAwakeMs = 0;
-    }
+    if (info != Info::NONE && infoExpiresAtAwakeMs != 0 && awakeMs >= infoExpiresAtAwakeMs)
+        clearInfo();
 
     // Promote a held card once the slot is free (System UI 05: strictly by
     // priority, one redraw)
@@ -248,8 +249,7 @@ void InkHUD::T5SystemLayer::reconcile()
         infoDropAtMs = 0;
     }
 
-    const bool anySurface =
-        terminal != Terminal::NONE || cardVisible != Card::NONE || messageVisible() || infoVisible() || bandVisible();
+    const bool anySurface = coversContent() || bandVisible();
 
     // A terminal state replaces the frame: nothing else may draw or request.
     lockRendering = terminal != Terminal::NONE;
@@ -262,7 +262,7 @@ void InkHUD::T5SystemLayer::reconcile()
     // Input is claimed only by surfaces that are targets. The lock band is not
     // one - with touch gated no touch arrives anyway, and while the user's own
     // TOUCH OFF is set the app below stays live and must keep the Home action.
-    handleInput = terminal != Terminal::NONE || cardVisible != Card::NONE || messageVisible() || infoVisible();
+    handleInput = coversContent();
 
     // bringToForeground() requests an update itself, which is exactly right for a
     // surface that has just appeared - and exactly wrong once per tick, so this
@@ -274,11 +274,33 @@ void InkHUD::T5SystemLayer::reconcile()
         sendToBackground();
 }
 
+// The info slot and both of its clocks. Clearing one and forgetting the others is how a surface comes
+// back from the dead a minute later.
+void InkHUD::T5SystemLayer::clearInfo()
+{
+    info = Info::NONE;
+    infoExpiresAtAwakeMs = 0;
+    infoDropAtMs = 0;
+}
+
+// Take the info slot. The shown-timeout starts only once the notice is actually visible, so until then
+// it runs on its own 10 min lifetime instead.
+void InkHUD::T5SystemLayer::raiseInfo(Info kind)
+{
+    info = kind;
+    infoExpiresAtAwakeMs = 0;
+    infoDropAtMs = Time::timerEndsAtMillis(INFO_UNSEEN_MS);
+}
+
 void InkHUD::T5SystemLayer::clearAggregate()
 {
     messages = Aggregate();
     messageExpiresAtAwakeMs = 0;
     messagePending = false;
+    messagePendingDM = false;
+    // The batch window rate-limits redraws of one aggregate. A message arriving after this one was dealt
+    // with is a first arrival again, and draws at once rather than waiting out the old window.
+    messageBatchUntilMs = 0;
     memset(conversationIds, 0, sizeof(conversationIds));
 }
 
@@ -372,6 +394,15 @@ void InkHUD::T5SystemLayer::onTouchPreferenceChanged()
     reconcile();
 }
 
+// Surfaces survive a mode switch with their content and their timers; only the geometry changes. The
+// frozen banner and card rects are per-mode, and so is the tile we draw them into.
+void InkHUD::T5SystemLayer::onModeChanged()
+{
+    getTile()->setRegion(0, 0, inkhud->width(), inkhud->height());
+    disarm(); // Every coordinate moved: the finger that switched modes must not hit a button (G6)
+    reconcile();
+}
+
 // ---------------------------------------------------------------------------------------------
 // Periodic work
 // ---------------------------------------------------------------------------------------------
@@ -403,18 +434,20 @@ int32_t InkHUD::T5SystemLayer::runOnce()
     // 08, A4).
     if (messagePending && messageBatchUntilMs != 0 && Throttle::deadlinePassedAt(now, messageBatchUntilMs)) {
         messagePending = false;
-        if (messageVisible() && (!gated || messages.hasDM))
+        const bool dmOwed = messagePendingDM;
+        messagePendingDM = false;
+        messageBatchUntilMs = Time::timerEndsAtMillis(MESSAGE_BATCH_MS);
+        if (messageVisible() && (!gated || dmOwed)) {
+            disarm(); // The surface's content changed, so its refresh is a new one (G1)
             requestSurfaceUpdate();
+        }
     }
 
     // Something stopped being shown: the foreground screen has to come back where
     // it was covered.
     if ((wasMessageVisible && !messageVisible()) || (wasInfoVisible && !infoVisible()) ||
-        (wasCard != Card::NONE && cardVisible != wasCard)) {
-        if (!gated)
-            inkhud->forceUpdate(EInk::UpdateTypes::UNSPECIFIED,
-                                true); // renderAll: R1, exactly what the screen would draw now
-    }
+        (wasCard != Card::NONE && cardVisible != wasCard))
+        restoreCoveredScreen();
 
     // While a surface is waiting to arm, tick at the gate's own resolution rather
     // than rounding its 300 ms up to the next second.
@@ -473,22 +506,26 @@ int InkHUD::T5SystemLayer::onReceiveTextMessage(const meshtastic_MeshPacket *p)
         return 0; // Held: suppressed inside Messaging (M4), or behind a task or a
                   // higher surface (M5)
 
+    // A DM may draw over the snapshot as an approved dark layer: no front light, not a user-input wake,
+    // the timeout gate and the light preference untouched. Channel traffic may not. It has already
+    // updated the aggregate above and stops there, so it never schedules a dark redraw and never even
+    // becomes a pending one - the new state is first seen in the wake frame (decision 4, A4).
+    if (gated && !dm)
+        return 0;
+
     // First arrival draws immediately; later ones inside the window are batched
     // to one redraw per 10 s.
     const bool windowOpen = messageBatchUntilMs != 0 && !Throttle::deadlinePassed(messageBatchUntilMs);
     if (windowOpen) {
         messagePending = true;
+        // Remember whether a DM is what is owed. A redraw batched while awake must not fire in the dark
+        // on behalf of channel traffic if the display gates before the window closes.
+        messagePendingDM = messagePendingDM || dm;
         return 0;
     }
     messageBatchUntilMs = Time::timerEndsAtMillis(MESSAGE_BATCH_MS);
     messagePending = false;
-
-    // A DM may draw over the snapshot as an approved dark layer: no front light,
-    // not a user-input wake, the timeout gate and the light preference untouched.
-    // Channel traffic may not - it has already updated the aggregate above and
-    // will first be seen in the wake frame (decision 4, A4).
-    if (gated && !dm)
-        return 0;
+    messagePendingDM = false;
 
     disarm(); // A surface is appearing: it must not activate under a finger
               // already down (G1)
@@ -535,18 +572,10 @@ int InkHUD::T5SystemLayer::onBluetoothStatusUpdate(const meshtastic::Status *sta
         cardHeld = Card::NONE;
     passkey.clear();
 
-    if (!connected && info == Info::NONE) {
-        info = Info::PAIRING_FAILED;
-        infoExpiresAtAwakeMs = 0;
-        infoDropAtMs = Time::timerEndsAtMillis(INFO_UNSEEN_MS);
-    }
+    if (!connected && info == Info::NONE)
+        raiseInfo(Info::PAIRING_FAILED);
 
-    reconcile();
-    // The card is gone: the screen beneath has to come back exactly as it would
-    // draw now (R1). While gated the snapshot cannot be rebuilt, so this waits
-    // for the wake frame.
-    if (!T5UiGate::snapshotHeld())
-        inkhud->forceUpdate(EInk::UpdateTypes::UNSPECIFIED, true);
+    restoreCoveredScreen();
     return 0;
 }
 
@@ -575,9 +604,7 @@ void InkHUD::T5SystemLayer::checkPower()
         criticalArmed = true;
         bool changed = false;
         if (info == Info::LOW_BATTERY) {
-            info = Info::NONE;
-            infoExpiresAtAwakeMs = 0;
-            infoDropAtMs = 0;
+            clearInfo();
             changed = true;
         }
         if (cardVisible == Card::CRITICAL_BATTERY) {
@@ -588,11 +615,8 @@ void InkHUD::T5SystemLayer::checkPower()
             cardHeld = Card::NONE;
             changed = true;
         }
-        if (changed) {
-            reconcile();
-            if (!T5UiGate::snapshotHeld())
-                inkhud->forceUpdate(EInk::UpdateTypes::UNSPECIFIED, true);
-        }
+        if (changed)
+            restoreCoveredScreen();
         return;
     }
 
@@ -611,11 +635,8 @@ void InkHUD::T5SystemLayer::checkPower()
     if (criticalArmed && pendingCriticalSamples >= 2) {
         criticalArmed = false;
         lowArmed = false; // Already past low: it must not fire on the way down
-        if (info == Info::LOW_BATTERY) {
-            info = Info::NONE; // Escalation: the banner becomes the card in one redraw
-            infoExpiresAtAwakeMs = 0;
-            infoDropAtMs = 0;
-        }
+        if (info == Info::LOW_BATTERY)
+            clearInfo(); // Escalation: the banner becomes the card in one redraw
         if (cardVisible != Card::CRITICAL_BATTERY) {
             if (cardVisible != Card::NONE)
                 cardHeld = cardVisible; // Pairing waits behind it
@@ -630,11 +651,8 @@ void InkHUD::T5SystemLayer::checkPower()
 
     if (lowArmed && pendingLowSamples >= 2) {
         lowArmed = false;
-        if (info != Info::LOW_BATTERY) {
-            info = Info::LOW_BATTERY;
-            infoExpiresAtAwakeMs = 0;
-            infoDropAtMs = Time::timerEndsAtMillis(INFO_UNSEEN_MS);
-        }
+        if (info != Info::LOW_BATTERY)
+            raiseInfo(Info::LOW_BATTERY);
         reconcile();
         // Low battery never wakes or redraws a gated panel: it is shown in the wake
         // frame.
@@ -729,11 +747,8 @@ bool InkHUD::T5SystemLayer::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
         // belongs to Messaging.
         if (message)
             clearAggregate();
-        else {
-            info = Info::NONE;
-            infoExpiresAtAwakeMs = 0;
-            infoDropAtMs = 0;
-        }
+        else
+            clearInfo();
     } else {
         // OPEN. Native Messaging arrives in Phase 4; until then the aggregate is
         // consumed exactly as it would be by entering the conversation, and nothing
@@ -741,10 +756,7 @@ bool InkHUD::T5SystemLayer::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
         clearAggregate();
     }
 
-    reconcile();
-    disarm(); // Whatever is revealed next is a new appearance (G7)
-    inkhud->forceUpdate(EInk::UpdateTypes::UNSPECIFIED,
-                        true); // One request for both rects
+    restoreCoveredScreen();
     return true;
 }
 
@@ -765,16 +777,12 @@ void InkHUD::T5SystemLayer::onExitShort()
     } else if (messageVisible()) {
         clearAggregate();
     } else if (infoVisible()) {
-        info = Info::NONE;
-        infoExpiresAtAwakeMs = 0;
-        infoDropAtMs = 0;
+        clearInfo();
     } else {
         return;
     }
 
-    reconcile();
-    disarm();
-    inkhud->forceUpdate(EInk::UpdateTypes::UNSPECIFIED, true);
+    restoreCoveredScreen();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -805,7 +813,7 @@ void InkHUD::T5SystemLayer::onRender(bool full)
         return;
     }
 
-    if (surfaceTop() < 0)
+    if (!coversContent() && !bandVisible())
         return;
 
     const Geometry &g = geometry();
@@ -921,8 +929,8 @@ std::string InkHUD::T5SystemLayer::stampText(bool twoLine, std::string *second) 
 // 02).
 void InkHUD::T5SystemLayer::drawBanner()
 {
+    // No mode branch: both banners are laid out entirely from the frozen geometry table.
     const Geometry &g = geometry();
-    const bool console = width() > height();
     const bool message = messageVisible();
 
     fillRect(0, g.bannerTop, width(), 4, BLACK); // Heavy top rule
@@ -946,19 +954,20 @@ void InkHUD::T5SystemLayer::drawBanner()
                 snprintf(buf, sizeof(buf), "DIRECT");
             tag = buf;
             if (messages.count > 1) {
-                snprintf(buf, sizeof(buf), " %s %u", T5Applet::DASH, (unsigned)messages.count);
+                snprintf(buf, sizeof(buf), " %s %u", T5Applet::SEP, (unsigned)messages.count);
                 tag += buf;
             }
         }
 
         if (several || messages.fromSleep) {
             char n[48];
-            snprintf(n, sizeof(n), "%u new %s %u conversations", (unsigned)messages.count, T5Applet::DASH,
+            snprintf(n, sizeof(n), "%u new %s %u conversations", (unsigned)messages.count, T5Applet::SEP,
                      (unsigned)(messages.overflowed ? CONVERSATION_CAP : messages.conversations));
             who = messages.fromSleep ? n : (to_string(messages.conversations) + " conversations");
             if (!messages.fromSleep)
-                who += std::string(" ") + T5Applet::DASH + " newest " + messages.shortName;
-            preview = messages.shortName + ": " + messages.preview;
+                who += std::string(" ") + T5Applet::SEP + " newest " + messages.shortName;
+            preview = (messages.fromSleep ? std::string("Newest ") + T5Applet::SEP + " " : std::string()) + messages.shortName +
+                      ": " + messages.preview;
         } else {
             who = T5Applet::join(messages.shortName, messages.longName);
             preview = messages.preview;
@@ -967,7 +976,7 @@ void InkHUD::T5SystemLayer::drawBanner()
     } else if (info == Info::LOW_BATTERY) {
         tag = "BATTERY";
         char buf[40];
-        snprintf(buf, sizeof(buf), "Low battery %s %u %%", T5Applet::DASH,
+        snprintf(buf, sizeof(buf), "Low battery %s %u %%", T5Applet::SEP,
                  (unsigned)(powerStatus ? powerStatus->getBatteryChargePercent() : 0));
         who = buf;
         preview = "Charge soon. This shows once until the device is charged.";
@@ -1008,11 +1017,12 @@ void InkHUD::T5SystemLayer::drawBanner()
     // Actions. An info banner keeps DISMISS in the same place, so the hand learns
     // one position.
     if (message)
-        drawBannerButton(g.openLeft, g.openW, messages.conversations > 1 ? "MESSAGES" : "OPEN");
+        drawBannerButton(g.openLeft, g.openW,
+                         (messages.conversations > 1 ? std::string("MESSAGES ") : std::string("OPEN ")) + CHEVRON);
     drawBannerButton(g.dismissLeft, g.dismissW, "DISMISS");
 }
 
-void InkHUD::T5SystemLayer::drawBannerButton(int16_t left, int16_t w, const char *label)
+void InkHUD::T5SystemLayer::drawBannerButton(int16_t left, int16_t w, const std::string &label)
 {
     const Geometry &g = geometry();
     setFont(fontSmall);
@@ -1038,8 +1048,8 @@ void InkHUD::T5SystemLayer::drawCard()
     fillRect(0, headerTop, width(), HEADER_H, BLACK);
     setFont(fontSmall);
     setTextColor(WHITE);
-    printThick(T5Applet::MARGIN + getTextWidth(pairing ? "BLUETOOTH \x97 PAIRING" : "BATTERY \x97 CRITICAL") / 2,
-               headerTop + HEADER_H / 2, pairing ? "BLUETOOTH \x97 PAIRING" : "BATTERY \x97 CRITICAL", 2, 1);
+    printThick(T5Applet::MARGIN + getTextWidth(pairing ? CARD_PAIRING_LABEL : CARD_CRITICAL_LABEL) / 2, headerTop + HEADER_H / 2,
+               pairing ? CARD_PAIRING_LABEL : CARD_CRITICAL_LABEL, 2, 1);
     std::string right;
     if (pairing)
         right = getTimeString();
@@ -1057,7 +1067,7 @@ void InkHUD::T5SystemLayer::drawCard()
 
     if (pairing) {
         setFont(fontMedium);
-        printBold(g.pad, y, console ? "Pairing request \x97 type this PIN on the phone" : "Pairing request");
+        printBold(g.pad, y, console ? "Pairing request \xB7 type this PIN on the phone" : "Pairing request");
         y += fontMedium.lineHeight() + (console ? 8 : 12);
 
         if (!console) {
@@ -1099,7 +1109,7 @@ void InkHUD::T5SystemLayer::drawCard()
         y += (int16_t)getWrappedTextHeight(g.pad, bodyW, body) + 16;
 
         char buf[32];
-        snprintf(buf, sizeof(buf), "%u %% \x97 %.2f V", (unsigned)(powerStatus ? powerStatus->getBatteryChargePercent() : 0),
+        snprintf(buf, sizeof(buf), "%u %% \xB7 %.2f V", (unsigned)(powerStatus ? powerStatus->getBatteryChargePercent() : 0),
                  powerStatus ? powerStatus->getBatteryVoltageMv() / 1000.0 : 0.0);
         drawCardRow(y, "BATTERY", buf);
     }
@@ -1108,7 +1118,7 @@ void InkHUD::T5SystemLayer::drawCard()
     // that slot, in which case the buttons return in the wake or touch-on frame
     // (Lock and Power 04).
     if (!bandVisible())
-        drawButtonBand(nullptr, pairing ? "HIDE" : "OK");
+        drawButtonBand(pairing ? "HIDE" : "OK");
 }
 
 void InkHUD::T5SystemLayer::drawCardRow(int16_t top, const char *label, const std::string &value)
@@ -1119,27 +1129,16 @@ void InkHUD::T5SystemLayer::drawCardRow(int16_t top, const char *label, const st
     printBoldRight(width() - g.pad, top, value);
 }
 
-// One button fills the band; two split it 1 : 1.3 with the verb on the right.
-void InkHUD::T5SystemLayer::drawButtonBand(const char *left, const char *right)
+// A card's band, in the nav position. Every Phase 3 card offers exactly one verb, so the button fills
+// the band. The two-button split belongs to confirmations, which are Phase 4.
+void InkHUD::T5SystemLayer::drawButtonBand(const char *verb)
 {
     const Geometry &g = geometry();
     const int16_t top = g.bandTop;
-    const int16_t h = height() - top;
 
     fillRect(0, top - 2, width(), 2, BLACK);
     setFont(fontSmall);
-
-    if (!left) {
-        printThick(width() / 2, top + h / 2, right, 2, 1);
-        return;
-    }
-
-    const int16_t split = width() * 10 / 23; // 1 : 1.3
-    printAt(split / 2, top + h / 2, left, CENTER, MIDDLE);
-    fillRect(split, top, width() - split, h, BLACK);
-    setTextColor(WHITE);
-    printThick(split + (width() - split) / 2, top + h / 2, right, 2, 1);
-    setTextColor(BLACK);
+    printThick(width() / 2, top + (height() - top) / 2, verb, 2, 1);
 }
 
 // The frozen full-screen template: title, one big line, one explanation,
@@ -1149,12 +1148,14 @@ void InkHUD::T5SystemLayer::drawTerminal()
 {
     fillRect(0, 0, width(), height(), WHITE);
 
+    const Geometry &g = geometry();
     const bool console = width() > height();
-    const int16_t headerH = console ? CONSOLE_HEADER_H : CARRY_HEADER_H;
-    const int16_t pad = console ? 16 : 24;
+    const int16_t headerH = g.headerH;
+    const int16_t pad = g.pad;
 
     const char *title = "";
     const char *big = "";
+    std::string bigBuf; // Backs `big` when the line is composed rather than literal
     std::string explain;
     switch (terminal) {
     case Terminal::RESTARTING:
@@ -1218,7 +1219,7 @@ void InkHUD::T5SystemLayer::drawTerminal()
 
 void InkHUD::T5SystemLayer::drawTerminalRow(int16_t top, const char *label, const std::string &value)
 {
-    const int16_t pad = (width() > height()) ? 16 : 24;
+    const int16_t pad = geometry().pad;
     setFont(fontSmall);
     printAt(pad, top, label, LEFT, TOP);
     printBoldRight(width() - pad, top, value);
