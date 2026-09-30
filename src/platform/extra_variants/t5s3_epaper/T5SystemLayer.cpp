@@ -983,7 +983,8 @@ void InkHUD::T5SystemLayer::drawBanner()
     } else {
         tag = "BLUETOOTH";
         who = "Pairing not completed";
-        preview = "Nothing was paired. Try again from the app.";
+        // The frozen design gives this notice a headline and nothing else. An unspecified field stays
+        // empty rather than being filled with copy the design never approved.
     }
 
     // Tag chip and sender share one line; the time sits at the right edge.
@@ -1009,10 +1010,13 @@ void InkHUD::T5SystemLayer::drawBanner()
     resetCrop();
 
     // The preview is hard-limited to the frozen two-line box: the banner never
-    // grows.
-    setCrop(g.previewLeft, g.previewTop, g.previewW, g.previewH);
-    printWrapped(g.previewLeft, g.previewTop, g.previewW, preview);
-    resetCrop();
+    // grows. A surface the design gives no preview simply has none - the banner keeps its frozen rect
+    // and its DISMISS position, and the box is left blank.
+    if (!preview.empty()) {
+        setCrop(g.previewLeft, g.previewTop, g.previewW, g.previewH);
+        printWrapped(g.previewLeft, g.previewTop, g.previewW, preview);
+        resetCrop();
+    }
 
     // Actions. An info banner keeps DISMISS in the same place, so the hand learns
     // one position.
