@@ -53,12 +53,17 @@ void InkHUD::T5HomeApplet::begin()
 
     // Native Messaging is the only messaging UI on T5, so the shared messaging
     // applets are made inactive here rather than removed: an inactive applet
-    // cannot be shown, cannot autoshow and is not offered by the App Switcher,
-    // and leaving them registered keeps every saved applet index valid, so no
-    // settings migration is needed (Messaging Final 34). Done where saved
-    // settings are already loaded, so neither a file written before native
-    // Messaging existed nor anything the shared Menu set can bring one back.
-    for (const char *name : {"All Messages", "DMs", "Channel 0", "Channel 1"}) {
+    // cannot be shown and is not offered by the App Switcher, and leaving them
+    // registered keeps every saved applet index valid, so no settings migration
+    // is needed (Messaging Final 34). Done where saved settings are already
+    // loaded, so neither a file written before native Messaging existed nor
+    // anything the shared Menu set can bring one back.
+    // The native map is the only user-facing map on T5, and the shared map surfaces are retired the same
+    // way: inactive, so none can be shown, offered by the App Switcher or reached from a geofence
+    // notification, and with autoshow cleared too, because autoshow is gated on the saved flag rather
+    // than on the applet being active - a position packet must never take the foreground (Map 12, D6).
+    // Waypoints are out of v1 and go with them. Their registrations stay, so no saved index moves.
+    for (const char *name : {"All Messages", "DMs", "Channel 0", "Channel 1", "Positions", "Favorites Map", "Waypoints"}) {
         const int8_t i = indexOf(name);
         if (i < 0)
             continue;

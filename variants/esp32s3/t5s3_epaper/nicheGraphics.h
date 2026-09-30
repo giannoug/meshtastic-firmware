@@ -110,16 +110,16 @@ void setupNicheGraphics()
                       false); // Retired on T5
     inkhud->addApplet("Channel 1", new InkHUD::ThreadedMessageApplet(1), false,
                       false); // Retired on T5
-    inkhud->addApplet("Positions", new InkHUD::PositionsApplet, true,
-                      false); // Activated, not autoshown
+    inkhud->addApplet("Positions", new InkHUD::PositionsApplet, false,
+                      false); // Retired on T5
     inkhud->addApplet("Waypoints", new InkHUD::WaypointListApplet, false,
-                      false); // Not Active, not autoshown
+                      false); // Out of v1
     inkhud->addApplet("Recents List", new InkHUD::RecentsListApplet, true,
                       false); // Activated, not autoshown
     inkhud->addApplet("Heard", new InkHUD::HeardApplet, true,
                       false); // Activated, not autoshown
     inkhud->addApplet("Favorites Map", new InkHUD::FavoritesMapApplet, false,
-                      false); // Not Active, not autoshown
+                      false); // Retired on T5
     // T5 applets go last: InkHUD saves applet choices by index, so appending
     // keeps existing saved indices valid
     inkhud->addApplet("Home", new InkHUD::T5HomeApplet, true, false,
@@ -136,8 +136,9 @@ void setupNicheGraphics()
                       false); // Activated, not autoshown
     // Appended for the same reason again: the native map takes slot 15 of 16, and
     // no saved index moves. The shared Positions / Waypoints / Favorites Map
-    // applets stay registered but inactive, so they keep their indices while no
-    // user-facing route can reach them (Map 12, D6).
+    // applets above stay registered but inactive, so they keep their indices
+    // while no user-facing route can reach them; T5HomeApplet::begin() holds
+    // them off whatever a saved settings file says (Map 12, D6).
     inkhud->addApplet("Map", new InkHUD::T5MapApplet, true,
                       false); // Activated, not autoshown
 
