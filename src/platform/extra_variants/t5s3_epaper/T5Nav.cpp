@@ -2,6 +2,7 @@
 
 #include "./T5Nav.h"
 #include "./T5Applet.h"
+#include "./T5MenuApplet.h"
 
 #include "graphics/niche/InkHUD/InkHUD.h"
 
@@ -40,15 +41,29 @@ int8_t InkHUD::t5DestApplet(T5Dest d)
 
 bool InkHUD::t5DestAvailable(T5Dest d)
 {
-    return t5DestApplet(d) >= 0;
+    // The one destination whose screen is not a user applet answers for itself
+    return d == T5_MENU ? T5MenuApplet::available() : t5DestApplet(d) >= 0;
 }
 
 // An unavailable destination, and one already on screen, both ask for no update at all: nothing flickers
 void InkHUD::t5OpenDest(T5Dest d)
 {
+    if (d == T5_MENU) {
+        T5MenuApplet::open();
+        return;
+    }
     const int8_t target = t5DestApplet(d);
-    if (target >= 0 && !InkHUD::getInstance()->userApplets[target]->isForeground())
-        InkHUD::getInstance()->showApplet(target, Drivers::EInk::UpdateTypes::UNSPECIFIED, true);
+    if (target < 0)
+        return;
+    // The menu is a system applet drawn over the destination it was opened from, so that destination
+    // is still foreground underneath. Leaving the menu is therefore a change even when the target
+    // already holds the tile, and showApplet() asks for the one frame either way
+    const bool leavingMenu = T5MenuApplet::isOpen();
+    if (leavingMenu)
+        T5MenuApplet::leaveForDestination();
+    else if (InkHUD::getInstance()->userApplets[target]->isForeground())
+        return; // Already on screen: nothing flickers
+    InkHUD::getInstance()->showApplet(target, Drivers::EInk::UpdateTypes::UNSPECIFIED, true);
 }
 
 bool InkHUD::t5HandleNavTap(Applet &a, uint16_t x, uint16_t y)

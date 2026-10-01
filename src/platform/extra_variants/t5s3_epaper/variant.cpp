@@ -29,6 +29,8 @@
 
 #include "T5Applet.h"
 #include "T5AppsApplet.h"
+#include "T5MenuApplet.h"
+#include "T5MenuTask.h"
 #include "T5MessageModel.h"
 #include "T5SystemLayer.h"
 #ifdef T5_INKHUD_SCREENSHOT
@@ -184,6 +186,10 @@ void t5SetMode(T5Mode mode)
     // Apps keeps the open tool and its state across the rotate; only the picker's own full-screen
     // tile has to be re-placed, exactly as the composer's does (Apps 11).
     NicheGraphics::InkHUD::T5AppsApplet::onModeChanged();
+    // The menu keeps its section, its selection and any pending picker or confirmation across the
+    // rotate; only the page number is recomputed, because every row height changed (Menu Settings 29)
+    NicheGraphics::InkHUD::T5MenuApplet::onModeChanged();
+    NicheGraphics::InkHUD::T5MenuTask::onModeChanged();
     // Every pixel moved. A blocking FULL merges with that queued FAST
     // (DisplayHealth::prioritize), so the panel does exactly one FULL update and
     // the async render finds nothing left to do.

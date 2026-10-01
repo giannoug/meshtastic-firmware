@@ -29,6 +29,8 @@ This is driven via the FastEPD library through the NicheGraphics ED047TC1 driver
 #include "T5ConversationApplet.h"
 #include "T5HomeApplet.h"
 #include "T5MapApplet.h"
+#include "T5MenuApplet.h"
+#include "T5MenuTask.h"
 #include "T5MessageModel.h"
 #include "T5MessagesApplet.h"
 #include "T5NodeDetailApplet.h"
@@ -174,10 +176,16 @@ void setupNicheGraphics()
 
     // Start running InkHUD
     inkhud->begin();
-    InkHUD::T5MessageModel::begin();  // Before the surfaces which read it, and
-                                      // before they register with it
-    InkHUD::T5HomeApplet::begin();    // Saved settings loaded by begin() override
-                                      // the defaults above
+    InkHUD::T5MessageModel::begin(); // Before the surfaces which read it, and
+                                     // before they register with it
+    InkHUD::T5HomeApplet::begin();   // Saved settings loaded by begin() override
+                                     // the defaults above
+    // The native menu is a system applet, so it costs none of the sixteen user slots above. It goes
+    // first among the T5 system applets: earlier means its input claim is checked first, later means it
+    // draws on top, and the menu wants neither - it is the base screen the task layers and the system
+    // layer draw over, so it declines a tap whenever one of them is up (Menu Settings 14)
+    InkHUD::T5MenuApplet::begin();
+    InkHUD::T5MenuTask::begin();      // Its own pickers and confirmations, drawn over it
     InkHUD::T5TracePickTask::begin(); // A task layer, like the composer: before the system layer
     InkHUD::T5ComposeTask::begin();   // Before the system layer: a task's input
                                       // claim is checked first (System UI 04)
