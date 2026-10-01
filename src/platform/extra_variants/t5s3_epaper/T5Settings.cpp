@@ -1050,9 +1050,15 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
         snprintf(psram, sizeof(psram), "%.1f MB", ESP.getFreePsram() / (1024.0 * 1024.0));
         const std::string use = channelUseText() + " " + SEP + " " + airtimeText();
 
+        // The two tools the frozen page wraps are not wired to it. The screenshot tool captures three
+        // named screens from a BOOT + side-key chord, and teaching it a fourth means broadening
+        // screenshot infrastructure, which Phase 7 is explicitly not doing; touch calibration is its
+        // own build-flagged applet. Both rows keep their place and say so rather than being a tap that
+        // silently does nothing. Phase 8 owns screenshot automation and can wire them.
         T5Row shot = action("SAVE SCREENSHOT TO SD", T5Act::DEV_SCREENSHOT);
-        if (!sdCardPresent())
-            block(shot, "NO SD CARD");
+        block(shot, sdCardPresent() ? "NOT IN THIS BUILD" : "NO SD CARD");
+        T5Row cal = action(std::string("TOUCH CALIBRATION") + ELLIPSIS, T5Act::DEV_TOUCH_CAL);
+        block(cal, "NOT IN THIS BUILD");
 
         if (console) {
             rows.push_back(facts({{"FREE HEAP", heap},
@@ -1061,9 +1067,11 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
                                   {"SD CARD", sdCardText()},
                                   {std::string("CHANNEL ") + SEP + " AIRTIME", use}}));
             rows.push_back(shot);
+            rows.push_back(cal);
         } else {
             rows.push_back(section("TOOLS"));
             rows.push_back(shot);
+            rows.push_back(cal);
 
             rows.push_back(section("SYSTEM"));
             rows.push_back(info("FREE HEAP", heap));
@@ -1450,14 +1458,6 @@ bool InkHUD::t5NeedsConfirm(T5Act which, int32_t value, uint8_t channelIndex, T5
         out.keptLabel = "TO START AGAIN";
         out.kept = {"Press the power button."};
         out.verb = "SHUT DOWN";
-        return true;
-    }
-
-    case T5Act::DEV_TOUCH_CAL: {
-        out.title = "CALIBRATE TOUCH?";
-        out.crumb = std::string("DEVELOPER TOOLS ") + T5Applet::FWD + " TOUCH CALIBRATION";
-        out.bullets = {"Follow the targets on screen.", "Touch stops responding normally until it finishes."};
-        out.verb = "CALIBRATE";
         return true;
     }
 
