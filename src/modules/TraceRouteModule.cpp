@@ -153,6 +153,18 @@ void TraceRouteModule::alterReceivedProtobuf(meshtastic_MeshPacket &p, meshtasti
     p.decoded.payload.size =
         pb_encode_to_bytes(p.decoded.payload.bytes, sizeof(p.decoded.payload.bytes), &meshtastic_RouteDiscovery_msg, r);
 
+    // Keep the decoded reply to our own request, with the id it answers. Placed after the route
+    // has been decorated above, so what we keep is what the summary below is built from. Matched on
+    // request id alone: tracingNode is cleared once the tracking timeout fires, and a reply that
+    // arrives after that is still a valid answer to a request we sent.
+    if (incoming.request_id != 0 && lastRequestId != 0 && incoming.request_id == lastRequestId) {
+        result.requestId = incoming.request_id;
+        result.from = p.from;
+        result.receivedAtMs = Time::stampMillis();
+        result.route = *r;
+        hasResult = true;
+    }
+
     if (tracingNode != 0) {
         // check isResponseFromTarget
         bool isResponseFromTarget = (incoming.request_id != 0 && p.from == tracingNode);
@@ -634,6 +646,9 @@ bool TraceRouteModule::startTraceRoute(NodeNum node)
 
         if (service) {
             LOG_INFO("MeshService is available, sending packet");
+            // Read p->id while we still own the packet: sendToMesh() hands it to the router
+            lastRequestId = p->id;
+            lastRequestDest = node;
             service->sendToMesh(p, RX_SRC_USER);
             LOG_INFO("sendToMesh called for trace route to node 0x%08x", node);
         } else {
@@ -751,6 +766,10 @@ void TraceRouteModule::launch(NodeNum node)
                  p->decoded.want_response, p->decoded.payload.size);
 
         if (service) {
+            // Same capture as startTraceRoute(): both entry points send a request, so both record
+            // the id, or a reply to one would be matched against the other's
+            lastRequestId = p->id;
+            lastRequestDest = node;
             service->sendToMesh(p, RX_SRC_USER);
             LOG_INFO("sendToMesh called for trace route to node 0x%08x", node);
         } else {
@@ -841,6 +860,24 @@ void TraceRouteModule::drawFrame(OLEDDisplay *display, OLEDDisplayUiState *state
     }
 }
 #endif // HAS_SCREEN
+bool TraceRouteModule::getLastResult(TraceRouteResult &out) const
+{
+    if (!hasResult)
+        return false;
+    out = result;
+    return true;
+}
+
+uint32_t TraceRouteModule::getCooldownEndMs() const
+{
+    // Mirrors the check startTraceRoute() makes, so a caller can show when a new trace becomes
+    // available without a second notion of how long the cooldown is
+    if (!initialized || lastTraceRouteTime == 0)
+        return 0;
+    // skipZero so the one 0 tick after a wrap still reads as a deadline rather than as "none"
+    return Time::skipZero((uint32_t)lastTraceRouteTime + (uint32_t)cooldownMs);
+}
+
 int32_t TraceRouteModule::runOnce()
 {
     unsigned long now = Time::stampMillis();

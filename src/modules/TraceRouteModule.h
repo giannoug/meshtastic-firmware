@@ -11,6 +11,20 @@
 
 #define ROUTE_SIZE sizeof(((meshtastic_RouteDiscovery *)0)->route) / sizeof(((meshtastic_RouteDiscovery *)0)->route[0])
 
+/*
+  One decoded RouteDiscovery reply, kept with the identity of the request it answers.
+
+  The route arrays are stored as they look after alterReceivedProtobuf() has run, so they already
+  carry insertUnknownHops()' placeholders and this node's own appended SNR - the same data the
+  text summary is built from, without a caller having to parse that text back apart.
+*/
+struct TraceRouteResult {
+    uint32_t requestId = 0;    // decoded.request_id this reply answered
+    NodeNum from = 0;          // node that replied
+    uint32_t receivedAtMs = 0; // millis() when it was decoded
+    meshtastic_RouteDiscovery route = meshtastic_RouteDiscovery_init_zero;
+};
+
 /**
  * A module that traces the route to a certain destination node
  */
@@ -32,6 +46,24 @@ class TraceRouteModule : public ProtobufModule<meshtastic_RouteDiscovery>,
 #endif
 
     const char *getNodeName(NodeNum node);
+
+    /* Read-only views of state this module already creates. None of them sends a packet, takes a
+       measurement or advances a timer; each is safe to call at any time, including while idle. */
+
+    /// Packet id of the most recent request sent by startTraceRoute(), or 0 if none has been sent.
+    /// A fresh id per request, so a caller can tell a retrace to the same node from the one before it.
+    uint32_t getLastRequestId() const { return lastRequestId; }
+    /// Node the most recent request was addressed to, or 0 if none has been sent.
+    NodeNum getLastRequestDest() const { return lastRequestDest; }
+
+    /// Copies the most recently decoded reply into `out`. False when none has been decoded yet, in
+    /// which case `out` is untouched. The reply keeps its own requestId, so a caller compares that
+    /// against the id it started with rather than trusting the destination alone.
+    bool getLastResult(TraceRouteResult &out) const;
+
+    /// millis() at which a new request stops being refused by the cooldown, or 0 when nothing is
+    /// pending. Reports the existing cooldown; it does not impose one.
+    uint32_t getCooldownEndMs() const;
 
     virtual bool wantUIFrame() override { return shouldDraw(); }
     virtual Observable<const UIFrameEvent *> *getUIFrameObservable() override { return this; }
@@ -84,6 +116,15 @@ class TraceRouteModule : public ProtobufModule<meshtastic_RouteDiscovery>,
     bool resultLinesDirty = false;
     NodeNum tracingNode = 0;
     bool initialized = false;
+
+    // Identity of the last request sent, captured where it is generated, and the last reply
+    // decoded, captured where it is decoded. Retained so a UI can redraw a route it has already
+    // been shown; nothing in this module reads them back, so routing, cooldown and the tracking
+    // timeout behave exactly as they did before.
+    uint32_t lastRequestId = 0;
+    NodeNum lastRequestDest = 0;
+    bool hasResult = false;
+    TraceRouteResult result;
 };
 
 extern TraceRouteModule *traceRouteModule;
