@@ -805,8 +805,10 @@ void InkHUD::T5MenuApplet::applyNow(T5Act which, int32_t value)
         errorRow = T5Act::NONE;
     }
     // A restart-class apply has already scheduled the reboot and raised the applying band; the
-    // terminal frame belongs to T5SystemLayer, as it has since Phase 3
-    if (result != T5ApplyResult::RESTARTING)
+    // terminal frame belongs to T5SystemLayer, as it has since Phase 3. A new value, or a failure to
+    // save one, is the model changing: while the snapshot gate is set that stays logical, and the
+    // wake reconcile is what puts it on the panel (Menu Settings 30)
+    if (result != T5ApplyResult::RESTARTING && !T5UiGate::snapshotHeld())
         requestUpdate();
 }
 

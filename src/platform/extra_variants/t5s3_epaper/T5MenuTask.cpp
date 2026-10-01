@@ -134,8 +134,20 @@ void InkHUD::T5MenuTask::showApplying()
 // this is the applying state - but only while the menu is the screen doing the applying
 void InkHUD::T5MenuTask::onApplyingChanges()
 {
-    if (T5MenuApplet::isOpen())
-        showApplying();
+    if (!T5MenuApplet::isOpen())
+        return;
+
+    // The applying band is not one of the surfaces Phase 3 lets redraw a frozen panel - those are the
+    // DM banner, the pairing card, the critical-battery card and the three terminal states. So while
+    // the snapshot gate is set the work proceeds but the band asks for nothing: the frozen frame is
+    // left exactly as it is, no update is requested, and the front light is not touched. A
+    // restart-class apply still gets its terminal frame from T5SystemLayer, which is allowed to
+    // replace the snapshot at the actual transition. Anything that finished while gated is simply
+    // read back from config by the wake reconcile, so there is no obsolete band to replay.
+    if (T5UiGate::snapshotHeld())
+        return;
+
+    showApplying();
 }
 
 // CANCEL, Back-equivalent and the first Home press all land here: the page underneath, nothing written
