@@ -11,6 +11,11 @@
 #include <OLEDDisplay.h>
 #include <OLEDDisplayUi.h>
 
+class PowerTelemetryModule;
+/// The one instance, as EnvironmentTelemetryModule already publishes its own. Null when the
+/// module was not built or not enabled.
+extern PowerTelemetryModule *powerTelemetryModule;
+
 class PowerTelemetryModule : private concurrency::OSThread,
                              public BaseTelemetryModule,
                              public ProtobufModule<meshtastic_Telemetry>
@@ -23,6 +28,7 @@ class PowerTelemetryModule : private concurrency::OSThread,
         : concurrency::OSThread("PowerTelemetry"),
           ProtobufModule("PowerTelemetry", meshtastic_PortNum_TELEMETRY_APP, &meshtastic_Telemetry_msg)
     {
+        powerTelemetryModule = this;
         lastMeasurementPacket = nullptr;
         nodeStatusObserver.observe(&nodeStatus->onNewStatus);
         setIntervalFromNow(10 * 1000);

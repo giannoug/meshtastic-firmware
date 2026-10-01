@@ -40,6 +40,8 @@ static constexpr uint16_t TX_HISTORY_KEY_AIR_QUALITY_TELEMETRY = 0x8004;
 #endif
 #if __has_include(<Seeed_HM330X.h>)
 #include "Sensor/HM330XSensor.h"
+
+AirQualityTelemetryModule *airQualityTelemetryModule = nullptr;
 #endif
 
 void AirQualityTelemetryModule::i2cScanFinished(ScanI2C *i2cScanner)

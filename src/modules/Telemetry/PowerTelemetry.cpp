@@ -24,6 +24,8 @@
 #include "graphics/ScreenFonts.h"
 #include <Throttle.h>
 
+PowerTelemetryModule *powerTelemetryModule = nullptr;
+
 static constexpr uint16_t TX_HISTORY_KEY_POWER_TELEMETRY = 0x8005;
 
 namespace graphics
