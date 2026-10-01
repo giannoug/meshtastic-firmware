@@ -442,6 +442,12 @@ bool AirQualityTelemetryModule::getAirQualityTelemetry(meshtastic_Telemetry *m)
         hasSensor = true;
     }
 
+    // Retain what we just measured, before any caller decides what to do with it. This is the one
+    // place these sensors are read, so it is the one place a local reading can be recorded, and
+    // m->time above is the measurement's own timestamp.
+    if (valid && hasSensor)
+        recordLocalMeasurement(*m);
+
     return valid && hasSensor;
 }
 
