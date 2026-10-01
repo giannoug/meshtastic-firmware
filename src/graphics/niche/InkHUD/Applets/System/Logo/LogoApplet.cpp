@@ -160,6 +160,9 @@ void InkHUD::LogoApplet::onShutdown()
 
 void InkHUD::LogoApplet::onApplyingChanges()
 {
+    if (inkhud->replacesStockSystemSurfaces)
+        return; // The variant draws its own applying state, as it does the shutdown and restart ones
+
     bringToForeground();
 
     textLeft = "";
