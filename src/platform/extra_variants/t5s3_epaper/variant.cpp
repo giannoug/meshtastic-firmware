@@ -11,6 +11,7 @@
 #include "input/InputBroker.h"
 #include "input/TouchScreenImpl1.h"
 #include "main.h"
+#include "mesh/Default.h"
 #include "mesh/Throttle.h"
 #include "meshUtils.h"
 #include "sleep.h"
@@ -646,6 +647,45 @@ void t5TouchSetForcedByTimeout(bool forced)
 bool t5TouchIsForcedByTimeout()
 {
     return touchForcedByTimeout;
+}
+
+// ------------------------------------------------------------------ screen timeout
+//
+// The one canonical source for when the display times out. See variant.h for why PowerFSM's timed
+// transition could not be it, and what re-arms this one.
+
+namespace
+{
+// Absolute deadline, or 0 when nothing is armed. timerEndsAtMillis() never returns 0, so the
+// sentinel can never collide with a real deadline (Throttle.h)
+uint32_t screenTimeoutAtMs = 0;
+} // namespace
+
+bool t5ScreenTimeoutDisabled()
+{
+    return config.display.screen_on_secs == 0;
+}
+
+void t5ScreenTimeoutArm()
+{
+    if (t5ScreenTimeoutDisabled()) {
+        screenTimeoutAtMs = 0; // Nothing is counting, so nothing can expire
+        return;
+    }
+    screenTimeoutAtMs =
+        Time::timerEndsAtMillis(Default::getConfiguredOrDefaultMs(config.display.screen_on_secs, default_screen_on_secs));
+}
+
+// Changing the setting re-arms from now, so raising or lowering it is never also an immediate sleep:
+// the tap that changed it is the most recent thing the user did
+void t5ScreenTimeoutApply()
+{
+    t5ScreenTimeoutArm();
+}
+
+bool t5ScreenTimeoutExpired()
+{
+    return screenTimeoutAtMs != 0 && Throttle::deadlinePassed(screenTimeoutAtMs);
 }
 
 namespace T5UiGate

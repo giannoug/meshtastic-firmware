@@ -89,6 +89,31 @@ void userWake();
 bool claimWake();
 } // namespace T5UiGate
 
+// The screen-timeout owner.
+//
+// PowerFSM reads config.display.screen_on_secs once, in PowerFSM_setup(), into an arduino-fsm timed
+// transition whose interval that library exposes no way to change or remove. On every e-ink board
+// the shared menu therefore offers this setting as if it applied at once when it only applies at the
+// next boot. For T5 the two ON/POWER -> DARK timed transitions are not registered at all, and this
+// owner drives the same transition on EVENT_SCREEN_TIMEOUT instead:
+//
+//   - t5ScreenTimeoutArm()     re-arms the deadline. Called from PowerFSM's ON and POWER entry
+//                              actions, which is exactly where Fsm::make_transition re-arms its own
+//                              timers, so a self-transition on EVENT_PRESS / EVENT_INPUT /
+//                              EVENT_RECEIVED_MSG keeps resetting the timeout as it always did.
+//   - t5ScreenTimeoutExpired() true once the deadline has passed. Polled from the ON and POWER idle
+//                              actions, which run on every PowerFSM iteration.
+//   - t5ScreenTimeoutApply()   re-reads the setting. Changing it is a plain assignment: no
+//                              transition is mutated, so there is no stale timer to go wrong.
+//
+// "Never" (screen_on_secs == 0) arms no deadline at all. Nothing is counting, nothing can expire and
+// no transition exists to fire - rather than a very large interval that would merely take a long
+// time to arrive.
+void t5ScreenTimeoutApply();
+void t5ScreenTimeoutArm();
+bool t5ScreenTimeoutExpired();
+bool t5ScreenTimeoutDisabled(); // True while the setting is "Never"
+
 // Gate GT911 capacitive-home callback delivery until InkHUD startup is complete.
 void t5SetHomeCapButtonEventsEnabled(bool enabled);
 

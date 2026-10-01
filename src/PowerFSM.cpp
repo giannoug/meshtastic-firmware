@@ -90,12 +90,30 @@ static void t5NoteBatteryEmpty()
     NicheGraphics::InkHUD::T5SystemLayer::noteBatteryEmptyShutdown();
 #endif
 }
+
+// T5 owns its screen timeout, so this board registers no ON/POWER -> DARK timed transition. Arming
+// here matches what Fsm::make_transition does for its own timers - it re-arms every timed transition
+// leaving the state just entered - so the self-transitions on EVENT_PRESS, EVENT_INPUT and
+// EVENT_RECEIVED_MSG go on resetting the timeout exactly as they did. See variant.h.
+static constexpr bool t5OwnsScreenTimeout = true;
+static void t5ArmScreenTimeout()
+{
+    t5ScreenTimeoutArm();
+}
+static void t5CheckScreenTimeout()
+{
+    if (t5ScreenTimeoutExpired())
+        powerFSM.trigger(EVENT_SCREEN_TIMEOUT);
+}
 #else
 static void t5BacklightOffForSleep() {}
 static void t5BacklightWakeFromSleep() {}
 static void t5UiGateEnterTimeout() {}
 static void t5UiGateUserWake() {}
 static void t5NoteBatteryEmpty() {}
+static constexpr bool t5OwnsScreenTimeout = false;
+static void t5ArmScreenTimeout() {}
+static void t5CheckScreenTimeout() {}
 #endif
 
 static void sdsEnter()
@@ -280,6 +298,7 @@ static void powerEnter()
         if (screen)
             screen->setOn(true);
         setBluetoothEnableUnlessRestarting();
+        t5ArmScreenTimeout();
         // within enter() the function getState() returns the state we came from
     }
 }
@@ -291,7 +310,9 @@ static void powerIdle()
         // If we got here, we are in the wrong state
         LOG_INFO("Loss of power in Powered");
         powerFSM.trigger(EVENT_POWER_DISCONNECTED);
+        return;
     }
+    t5CheckScreenTimeout();
 }
 
 static void powerExit()
@@ -306,6 +327,7 @@ static void onEnter()
     if (screen)
         screen->setOn(true);
     setBluetoothEnableUnlessRestarting();
+    t5ArmScreenTimeout();
 }
 
 static void onIdle()
@@ -314,7 +336,9 @@ static void onIdle()
     if (isPowered()) {
         // If we got here, we are in the wrong state - we should be in powered, let that state handle things
         powerFSM.trigger(EVENT_POWER_CONNECTED);
+        return;
     }
+    t5CheckScreenTimeout();
 }
 
 static void bootEnter()
@@ -431,9 +455,17 @@ void PowerFSM_setup()
 
     powerFSM.add_transition(&stateDARK, &stateDARK, EVENT_CONTACT_FROM_PHONE, NULL, "Contact from phone");
 
+    if (t5OwnsScreenTimeout) {
+        // No timed transition: a fixed interval could neither be changed nor removed at run time, so
+        // the timeout is driven by the board's own deadline and arrives as an event
+        powerFSM.add_transition(&stateON, &stateDARK, EVENT_SCREEN_TIMEOUT, NULL, "Screen-on timeout");
+        powerFSM.add_transition(&statePOWER, &stateDARK, EVENT_SCREEN_TIMEOUT, NULL, "Screen-on timeout");
+    }
 #ifdef USE_EINK
     // Allow E-Ink devices to suppress the screensaver, if screen timeout set to 0
-    if (config.display.screen_on_secs > 0)
+    else if (config.display.screen_on_secs > 0)
+#else
+    else
 #endif
     {
         powerFSM.add_timed_transition(&stateON, &stateDARK,
