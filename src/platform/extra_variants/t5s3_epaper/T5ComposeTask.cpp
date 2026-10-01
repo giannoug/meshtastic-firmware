@@ -47,6 +47,13 @@ constexpr int16_t PICK_PAGER_H = 64;
 
 InkHUD::T5ComposeTask::T5ComposeTask()
 {
+    // A temporary layer that replaces the whole screen, so it owns its whole region: it clears that
+    // region itself rather than letting the Renderer do it, which is the only way the screen
+    // underneath cannot show through a gap on a frame that re-renders everything - a wake from the
+    // display timeout, a Carry / Console switch, or the applet below redrawing itself. Paired with
+    // alwaysRender while open, so such a frame always redraws us last. The contract T5SystemLayer
+    // already uses for its own full-screen states.
+    clearsOwnRegion = true;
     (new Tile)->assignApplet(this);
 }
 
@@ -106,7 +113,12 @@ void InkHUD::T5ComposeTask::reconcile()
     // one Home press still closes the whole task rather than only the list
     // (Messaging Final 10).
     handleInput = mode != Mode::CLOSED;
-    if (mode == Mode::PICKER || mode == Mode::COMPOSER)
+    // NODE_LIST is the mode that hands the screen away, so what we draw in is the pair of modes that
+    // keep it. Drawn in every frame while we hold the screen, so a redraw of the applet underneath
+    // cannot erase us, and cleared again as soon as we let go
+    const bool drawing = mode == Mode::PICKER || mode == Mode::COMPOSER;
+    alwaysRender = drawing;
+    if (drawing)
         bringToForeground();
     else
         sendToBackground();
@@ -938,6 +950,15 @@ void InkHUD::T5ComposeTask::onNavUp()
 void InkHUD::T5ComposeTask::onRender(bool full)
 {
     (void)full;
+    // alwaysRender puts us in every frame, including the one that adds the lock band when the display
+    // timeout starts. While that hold is in force nothing underneath us is being redrawn either, so
+    // there is nothing to cover: leave the frozen frame exactly as it is and let T5SystemLayer draw
+    // the band over it, which is the one surface allowed to change a held image (Lock and Power 01).
+    if (inkhud->isRenderHeld())
+        return;
+
+    // Opaque: this layer replaces the screen, and clearsOwnRegion means nothing else blanks it
+    fillRect(0, 0, width(), height(), WHITE);
     if (mode == Mode::PICKER)
         renderPicker();
     else if (mode == Mode::COMPOSER)
