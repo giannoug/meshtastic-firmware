@@ -23,14 +23,15 @@ int16_t InkHUD::t5NavTop(const Applet &a)
     return a.height() - T5_NAV_H;
 }
 
-// Home, Messages, Nodes, Map and Apps are native user applets. MENU is not one of them: the native
-// menu is a system applet, so the T5 build still registers exactly 16 user applets (Menu Settings 14)
+// All six destinations are native user applets, MENU included: it holds slot 8 of sixteen, in place
+// of the shared Favorites Map the native Map retired (Menu Settings 14)
 int8_t InkHUD::t5DestApplet(T5Dest d)
 {
     const char *name = d == T5_HOME    ? "Home"
                        : d == T5_NODES ? "Nodes"
                        : d == T5_MSGS  ? "Messages"
                        : d == T5_MAP   ? "Map"
+                       : d == T5_MENU  ? T5MenuApplet::APPLET_NAME
                        : d == T5_APPS  ? "Apps"
                                        : nullptr;
     if (!name)
@@ -41,28 +42,26 @@ int8_t InkHUD::t5DestApplet(T5Dest d)
 
 bool InkHUD::t5DestAvailable(T5Dest d)
 {
-    // The one destination whose screen is not a user applet answers for itself
-    return d == T5_MENU ? T5MenuApplet::available() : t5DestApplet(d) >= 0;
+    return t5DestApplet(d) >= 0;
 }
 
 // An unavailable destination, and one already on screen, both ask for no update at all: nothing flickers
 void InkHUD::t5OpenDest(T5Dest d)
 {
-    if (d == T5_MENU) {
-        T5MenuApplet::open();
-        return;
-    }
     const int8_t target = t5DestApplet(d);
     if (target < 0)
         return;
-    // The menu is a system applet drawn over the destination it was opened from, so that destination
-    // is still foreground underneath. Leaving the menu is therefore a change even when the target
-    // already holds the tile, and showApplet() asks for the one frame either way
-    const bool leavingMenu = T5MenuApplet::isOpen();
-    if (leavingMenu)
-        T5MenuApplet::leaveForDestination();
-    else if (InkHUD::getInstance()->userApplets[target]->isForeground())
+    if (InkHUD::getInstance()->userApplets[target]->isForeground()) {
+        // MENU while already in the menu is the one destination that still does something: it returns
+        // to the root in Carry, and to the landing tile in Console (Menu Settings 14, touch regions)
+        if (d == T5_MENU)
+            T5MenuApplet::open();
         return; // Already on screen: nothing flickers
+    }
+    if (d == T5_MENU) {
+        T5MenuApplet::open(); // Picks the landing page, then takes the same showApplet path
+        return;
+    }
     InkHUD::getInstance()->showApplet(target, Drivers::EInk::UpdateTypes::UNSPECIFIED, true);
 }
 

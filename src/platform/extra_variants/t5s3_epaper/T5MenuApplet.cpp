@@ -11,7 +11,6 @@
 #include "UptimeClock.h"
 #include "gps/RTC.h"
 #include "graphics/niche/InkHUD/InkHUD.h"
-#include "graphics/niche/InkHUD/Tile.h"
 #include "mesh/Throttle.h"
 
 using namespace NicheGraphics;
@@ -32,26 +31,15 @@ constexpr int16_t TILES_WIDTH = TILE_COLUMNS * TILE_W; // 360; the pane starts t
 
 InkHUD::T5MenuApplet::T5MenuApplet() : concurrency::OSThread("T5Menu")
 {
-    // A destination that is a system applet owns its own full-screen tile, as the task layers do:
-    // nothing else places a tile for a system applet
-    (new Tile)->assignApplet(this);
-    OSThread::setIntervalFromNow(LIVE_REFRESH_MS);
-    OSThread::disable(); // Nothing to tick until the menu is open
-}
-
-void InkHUD::T5MenuApplet::begin()
-{
     assert(!instance);
-    instance = new T5MenuApplet;
-    instance->name = "T5Menu";
-    instance->activate();
+    instance = this;
 
-    // First among the T5 system applets: earlier means its input claim is checked first, and later
-    // means it draws on top. The menu wants the opposite of both - the task layers and the system
-    // layer draw over it and take its taps - so it goes first and declines a tap whenever one of
-    // them is up, which is how the composer already defers to the system layer
-    InkHUD::getInstance()->systemApplets.push_back(instance);
-    instance->getTile()->setRegion(0, 0, InkHUD::getInstance()->width(), InkHUD::getInstance()->height());
+    // The native MENU cell is the only way in. T5Applet's constructor already keeps every T5 screen
+    // out of the stock applet picker; the App Switcher has to be told separately.
+    hideFromAppSwitcher = true;
+
+    OSThread::setIntervalFromNow(LIVE_REFRESH_MS);
+    OSThread::disable(); // Nothing to tick until the menu is the screen
 }
 
 InkHUD::T5MenuApplet *InkHUD::T5MenuApplet::get()
@@ -59,72 +47,58 @@ InkHUD::T5MenuApplet *InkHUD::T5MenuApplet::get()
     return instance;
 }
 
-bool InkHUD::T5MenuApplet::available()
-{
-    return instance != nullptr;
-}
-
 bool InkHUD::T5MenuApplet::isOpen()
 {
-    return instance && instance->open_;
+    // Being the foreground screen is the whole of it: a task layer or a card draws over the menu
+    // without dismissing it, and the display timeout freezes the image without dismissing it either.
+    return instance && instance->isForeground();
 }
 
+// From the MENU nav cell. A fresh entry lands on the root in Carry and on the remembered category in
+// Console, and MENU while already in the menu returns there (Menu Settings 14, touch regions).
+// Which of the two that is depends on the mode, so the page itself is resolved on the next render,
+// where the tile's shape is known.
 void InkHUD::T5MenuApplet::open()
 {
     if (!instance)
         return;
-
-    if (!instance->open_) {
-        instance->open_ = true;
-        instance->page = T5Page::ROOT;
-        instance->pageIndex = 0;
-        instance->errorRow = T5Act::NONE;
-        // Console lands on DISPLAY the first time after boot, and on the last category of this
-        // session afterwards. RAM only: never persisted (decision 5)
-        if (t5IsConsole(*instance))
-            instance->page = t5CategoryPage(instance->consoleCategory);
-    } else {
-        // MENU while already in the menu returns to the root in Carry, and to the landing tile in
-        // Console (Menu Settings 14, touch regions)
-        instance->page = t5IsConsole(*instance) ? t5CategoryPage(instance->consoleCategory) : T5Page::ROOT;
-        instance->pageIndex = 0;
-    }
-
-    instance->reconcile();
-    instance->requestUpdate();
-}
-
-// Another nav cell was tapped. The user applet it opens requests the frame, so nothing is asked for
-// here beyond letting go of the screen
-void InkHUD::T5MenuApplet::leaveForDestination()
-{
-    if (!instance || !instance->open_)
+    const int8_t i = T5Applet::indexOf(APPLET_NAME);
+    if (i < 0)
         return;
-    instance->open_ = false;
-    instance->reconcile();
+
+    instance->landingPending = true;
+    instance->pageIndex = 0;
+    instance->errorRow = T5Act::NONE;
+
+    if (instance->isForeground())
+        instance->requestUpdate(); // Already the screen: only the page moved
+    else
+        InkHUD::getInstance()->showApplet((uint8_t)i, Drivers::EInk::UpdateTypes::UNSPECIFIED, true);
 }
 
+// The operation survives the rotate: the section and selection the user was reading are still here
+// afterwards (Menu Settings 29). Deliberately no test of which mode we are now in - that is the shape
+// of the tile, and the tile is not re-measured until the render, so a test here would read the mode we
+// just left.
 void InkHUD::T5MenuApplet::onModeChanged()
 {
-    if (!instance)
+    if (!instance || !instance->isForeground())
         return;
-    instance->getTile()->setRegion(0, 0, InkHUD::getInstance()->width(), InkHUD::getInstance()->height());
 
-    // The operation survives the rotate. Console has no root page of its own - the tiles are the
-    // root - so a Carry root becomes the landing category, and a Carry category becomes its tile
-    if (instance->open_) {
-        if (t5IsConsole(*instance)) {
-            if (instance->page == T5Page::ROOT) {
-                instance->page = t5CategoryPage(instance->consoleCategory);
-            } else {
-                for (uint8_t i = 0; i < T5_CATEGORY_COUNT; i++) {
-                    if (t5CategoryPage(i) == instance->page)
-                        instance->consoleCategory = i;
-                }
-            }
-        }
-        instance->pageIndex = 0; // Every row height changed, so the old page number means nothing
+    // Whichever category page is open is the one the Console tile grid should land back on, and this
+    // is the only record of which category that is
+    for (uint8_t i = 0; i < T5_CATEGORY_COUNT; i++) {
+        if (t5CategoryPage(i) == instance->page)
+            instance->consoleCategory = i;
     }
+
+    // A category page is the same page in both modes and carries across as it is. The Carry root has
+    // no Console equivalent - there the tile grid is the root - so it is left for the render to land,
+    // exactly as a fresh entry from the MENU cell is.
+    if (instance->page == T5Page::ROOT)
+        instance->landingPending = true;
+
+    instance->pageIndex = 0; // Every row height changed, so the old page number means nothing
 }
 
 // A task layer, or a system-layer surface, is in front of us
@@ -136,29 +110,21 @@ bool InkHUD::T5MenuApplet::coveredByTask() const
     return system && system->coversContent();
 }
 
-void InkHUD::T5MenuApplet::reconcile()
+// The ordinary user-applet lifecycle, shared with the other five destinations. Deliberately no state
+// reset here: a layout rebuild backgrounds and re-foregrounds every screen, and the menu has to keep
+// the section and selection the user was reading across a Carry / Console switch (Menu Settings 29).
+void InkHUD::T5MenuApplet::onForeground()
 {
-    // While a task layer is up it draws the whole screen, so the menu does not also render - but it
-    // is still the foreground logical screen, which is what open_ says
-    const bool draw = open_ && !T5MenuTask::isOpen();
+    T5Applet::onForeground();                     // Every T5 screen draws its own battery status
+    setInputsSubscribed(NAV_UP | NAV_DOWN, true); // Vertical swipes page the menu
+    OSThread::enabled = true;
+    OSThread::setIntervalFromNow(LIVE_REFRESH_MS);
+}
 
-    // The menu claims input while it is the drawn screen, so a swipe pages the menu rather than the
-    // destination still sitting underneath it, and Home is answered here rather than by that screen.
-    // It stands down while a task layer is up: the task is later in the list, so dropping the claim is
-    // what lets its own Home rule - cancel first, Home second - reach it (System UI 04).
-    handleInput = draw;
-
-    if (draw)
-        bringToForeground();
-    else
-        sendToBackground();
-
-    if (open_) {
-        OSThread::enabled = true;
-        OSThread::setIntervalFromNow(LIVE_REFRESH_MS);
-    } else {
-        OSThread::disable();
-    }
+void InkHUD::T5MenuApplet::onBackground()
+{
+    setInputsSubscribed(NAV_UP | NAV_DOWN, false);
+    OSThread::disable();
 }
 
 bool InkHUD::T5MenuApplet::hasBack() const
@@ -630,6 +596,15 @@ void InkHUD::T5MenuApplet::onRender(bool full)
     const Metrics m = metrics();
     const bool console = t5IsConsole(*this);
 
+    // A fresh entry from the MENU cell lands on the root in Carry, and on the remembered category in
+    // Console, which has no root page of its own. Resolved here because the mode is the shape of the
+    // tile, and the tile's dimensions are only current once the render has begun (decision 5)
+    if (landingPending) {
+        landingPending = false;
+        page = console ? t5CategoryPage(consoleCategory) : T5Page::ROOT;
+        pageIndex = 0;
+    }
+
     rowsShown.clear();
     rowTops.clear();
     rowHeights.clear();
@@ -695,37 +670,26 @@ void InkHUD::T5MenuApplet::turnPage(int8_t delta)
     requestUpdate();
 }
 
+// Nav arrives here only while we are the foreground screen and have subscribed, so the one thing
+// left to check is whether something is drawn over us
 void InkHUD::T5MenuApplet::onNavUp()
 {
-    if (open_ && !coveredByTask())
+    if (!coveredByTask())
         turnPage(-1);
 }
 
 void InkHUD::T5MenuApplet::onNavDown()
 {
-    if (open_ && !coveredByTask())
+    if (!coveredByTask())
         turnPage(1);
 }
 
 // Home from a menu page is absolute: the menu is a destination, not a task, so there is no layer to
-// peel first. Back is the only one-level-up control, and it lives in the header (Menu Settings 27)
-void InkHUD::T5MenuApplet::onExitShort()
-{
-    if (!open_)
-        return;
-    open_ = false;
-    reconcile();
-    const int8_t home = t5DestApplet(T5_HOME);
-    if (home >= 0)
-        InkHUD::getInstance()->showApplet((uint8_t)home, Drivers::EInk::UpdateTypes::UNSPECIFIED, true);
-    else
-        requestUpdate(); // No Home screen to go to: at least stop covering whatever is there
-}
+// peel first, and no onExitShort of our own - t5HomeAction() shows Home exactly as it does from any
+// other T5 screen. Back is the only one-level-up control, and it lives in the header (Menu Settings 27)
 
 bool InkHUD::T5MenuApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
 {
-    if (!open_)
-        return false;
 
     // A task layer or a system-layer surface is in front: its targets win, and its owner has them
     if (coveredByTask())
@@ -860,16 +824,13 @@ void InkHUD::T5MenuApplet::runRow(const T5Row &row, int16_t choiceCell)
     case T5Act::PICK_PRECISION:
     case T5Act::PICK_TZ:
         T5MenuTask::openPicker(row.action, channelIndex);
-        reconcile();
         return;
 
     case T5Act::EDIT_LONG_NAME:
         T5MenuTask::openNameField(false);
-        reconcile();
         return;
     case T5Act::EDIT_SHORT_NAME:
         T5MenuTask::openNameField(true);
-        reconcile();
         return;
 
     default:
@@ -890,7 +851,6 @@ void InkHUD::T5MenuApplet::runRow(const T5Row &row, int16_t choiceCell)
     T5Confirm spec;
     if (t5NeedsConfirm(row.action, value, channelIndex, spec)) {
         T5MenuTask::openConfirm(spec, row.action, value);
-        reconcile();
         return;
     }
 
@@ -903,13 +863,11 @@ void InkHUD::T5MenuApplet::pickChosen(T5Act which, int32_t value)
 {
     if (!instance)
         return;
-    instance->reconcile();
 
     T5Confirm spec;
     if (t5NeedsConfirm(which, value, instance->channelIndex, spec)) {
         // The picker itself never writes config: a risky one ends in a confirmation (C3)
         T5MenuTask::openConfirm(spec, which, value);
-        instance->reconcile();
         return;
     }
     instance->applyNow(which, value);
@@ -919,7 +877,6 @@ void InkHUD::T5MenuApplet::pickCancelled()
 {
     if (!instance)
         return;
-    instance->reconcile();
     instance->requestUpdate(); // The page underneath is exactly as it was; it only has to be drawn
 }
 
@@ -927,7 +884,6 @@ void InkHUD::T5MenuApplet::confirmed(T5Act which, int32_t value)
 {
     if (!instance)
         return;
-    instance->reconcile();
     instance->applyNow(which, value);
 }
 
@@ -935,7 +891,6 @@ void InkHUD::T5MenuApplet::confirmCancelled()
 {
     if (!instance)
         return;
-    instance->reconcile();
     instance->requestUpdate(); // CANCEL returns to the originating page, not to the picker
 }
 
@@ -943,7 +898,6 @@ void InkHUD::T5MenuApplet::nameEdited(bool shortName, const std::string &utf8)
 {
     if (!instance)
         return;
-    instance->reconcile();
     const T5Act which = shortName ? T5Act::EDIT_SHORT_NAME : T5Act::EDIT_LONG_NAME;
     if (t5SetOwnerName(shortName, utf8) == T5ApplyResult::FAILED)
         instance->errorRow = which;
@@ -962,7 +916,7 @@ int32_t InkHUD::T5MenuApplet::runOnce()
     if (T5UiGate::snapshotHeld())
         return LIVE_REFRESH_MS;
 
-    if (!open_ || !isForeground() || coveredByTask())
+    if (!isForeground() || coveredByTask())
         return LIVE_REFRESH_MS;
 
     // Only the RADIO page and the developer counters have values that move on their own

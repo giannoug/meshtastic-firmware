@@ -3,6 +3,7 @@
 #include "./T5HomeApplet.h"
 #include "./T5ComposeTask.h"
 #include "./T5ConversationApplet.h"
+#include "./T5MenuApplet.h"
 #include "./T5MessagesApplet.h"
 #include "./T5NodesApplet.h"
 #include "./T5SystemLayer.h"
@@ -43,10 +44,20 @@ void InkHUD::T5HomeApplet::begin()
     // T5 applets are appended after the shared applets, so their saved indices
     // are untouched. Settings saved before a T5 applet existed have it inactive;
     // all must be available, and Home shown at boot.
-    for (const char *name : {"Home", "Nodes", "Node Detail", "Messages", "Conversation", "Map", "Apps"}) {
+    // The menu is in this list for a second reason as well: it holds slot 8, which used to register
+    // the shared Favorites Map, so the one saved value that can be stale for a native screen is its
+    // own. Forcing it active here is what keeps a file written before this change from leaving the
+    // MENU cell struck through.
+    // autoshow is forced off for all of them: no T5 screen ever takes the foreground on its own, the
+    // foreground changes only when the user navigates, and autoshow is gated on the saved flag rather
+    // than on the applet being active - so a stale true from slot 8's old registration, or from the
+    // shared Auto-show page on another firmware, must not be able to seize the screen.
+    for (const char *name :
+         {"Home", "Nodes", "Node Detail", "Messages", "Conversation", "Map", "Apps", T5MenuApplet::APPLET_NAME}) {
         const int8_t i = indexOf(name);
         assert(i >= 0);
         saved.userApplets.active[i] = true;
+        saved.userApplets.autoshow[i] = false;
         if (!hud->userApplets[i]->isActive())
             hud->userApplets[i]->activate();
     }
@@ -63,7 +74,7 @@ void InkHUD::T5HomeApplet::begin()
     // notification, and with autoshow cleared too, because autoshow is gated on the saved flag rather
     // than on the applet being active - a position packet must never take the foreground (Map 12, D6).
     // Waypoints are out of v1 and go with them. Their registrations stay, so no saved index moves.
-    for (const char *name : {"All Messages", "DMs", "Channel 0", "Channel 1", "Positions", "Favorites Map", "Waypoints"}) {
+    for (const char *name : {"All Messages", "DMs", "Channel 0", "Channel 1", "Positions", "Waypoints"}) {
         const int8_t i = indexOf(name);
         if (i < 0)
             continue;
@@ -74,6 +85,32 @@ void InkHUD::T5HomeApplet::begin()
     }
 
     const int8_t index = indexOf("Home");
+    assert(index >= 0);
+
+    // Which applet each tile was showing is persisted by index, and slot 8 now means the menu where
+    // it used to mean the shared Favorites Map. The menu is a destination the user navigates to and
+    // never the screen the device boots into, so a saved reference to that slot is rewritten to Home
+    // - which also covers a shutdown that happened with the menu open.
+    const int8_t menuIndex = indexOf(T5MenuApplet::APPLET_NAME);
+    if (menuIndex >= 0) {
+        for (uint8_t t = 0; t < Persistence::MAX_TILES_GLOBAL; t++) {
+            if (saved.userTiles.displayedUserApplet[t] == (uint8_t)menuIndex)
+                saved.userTiles.displayedUserApplet[t] = (uint8_t)index;
+        }
+    }
+
+    // Every native screen is a full-screen composition with frozen pixel geometry - the menu's
+    // Console tile grid and its page splits are fixed values, not fractions of the tile it is given -
+    // so T5 runs exactly one user tile. Pinned here, where saved settings have just been loaded over
+    // the addApplet() defaults, so neither a file written by other firmware on this flash nor the
+    // shared Layout page can split the screen under a native screen.
+    saved.userTiles.maxCount = 1;
+    if (saved.userTiles.count != 1) {
+        saved.userTiles.count = 1;
+        saved.userTiles.focused = 0;
+        hud->updateLayout(); // Rebuild the tiles InkHUD::begin() just made from the stale count
+    }
+
     if (!hud->userApplets[index]->isForeground()) {
         saved.userTiles.focused = 0;
         hud->showApplet(index, EInk::UpdateTypes::UNSPECIFIED, true);

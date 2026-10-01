@@ -39,7 +39,6 @@ This is driven via the FastEPD library through the NicheGraphics ED047TC1 driver
 #include "T5TracePickTask.h"
 #include "graphics/niche/InkHUD/Applets/User/AllMessage/AllMessageApplet.h"
 #include "graphics/niche/InkHUD/Applets/User/DM/DMApplet.h"
-#include "graphics/niche/InkHUD/Applets/User/FavoritesMap/FavoritesMapApplet.h"
 #include "graphics/niche/InkHUD/Applets/User/Heard/HeardApplet.h"
 #include "graphics/niche/InkHUD/Applets/User/Positions/PositionsApplet.h"
 #include "graphics/niche/InkHUD/Applets/User/RecentsList/RecentsListApplet.h"
@@ -89,7 +88,10 @@ void setupNicheGraphics()
     InkHUD::Applet::fontSmall = FREESANS_12PT_WIN1253;
 
     // Customize default settings
-    inkhud->persistence->settings.userTiles.maxCount = 2;                         // How many tiles can the display handle?
+    // One tile, always: every native screen is a full-screen composition with frozen pixel geometry.
+    // This is only the first-boot default - saved settings replace it wholesale - so T5HomeApplet::begin()
+    // pins the same invariant again once they are loaded.
+    inkhud->persistence->settings.userTiles.maxCount = 1;
     inkhud->persistence->settings.rotation = static_cast<uint8_t>(T5Mode::CARRY); // First-boot default: Carry (portrait)
     inkhud->persistence->settings.userTiles.count = 1; // One tile only by default, keep things simple for new users
     inkhud->persistence->settings.optionalFeatures.batteryIcon = false; // T5 UI draws its own battery status
@@ -133,8 +135,13 @@ void setupNicheGraphics()
                 false); // Activated, not autoshown
     t5AddApplet("Heard", new InkHUD::HeardApplet, true,
                 false); // Activated, not autoshown
-    t5AddApplet("Favorites Map", new InkHUD::FavoritesMapApplet, false,
-                false); // Retired on T5
+    // Slot 8 of sixteen: the native menu, in place of the shared Favorites Map that the native Map
+    // retired. The menu is a destination and a peer of Home / Nodes / Messages / Map / Apps, so it is
+    // a user applet like them - a system applet cannot be the base screen without leaving the applet
+    // underneath alive and rendering. Replaced in place, so the total stays at sixteen and no later
+    // index moves; T5HomeApplet::begin() handles the stale slot-8 state a saved file may hold.
+    t5AddApplet(InkHUD::T5MenuApplet::APPLET_NAME, new InkHUD::T5MenuApplet, true,
+                false); // Activated, not autoshown
     // T5 applets go last: InkHUD saves applet choices by index, so appending
     // keeps existing saved indices valid
     t5AddApplet("Home", new InkHUD::T5HomeApplet, true, false,
@@ -150,10 +157,10 @@ void setupNicheGraphics()
     t5AddApplet("Conversation", new InkHUD::T5ConversationApplet, true,
                 false); // Activated, not autoshown
     // Appended for the same reason again: the native map takes slot 15 of 16, and
-    // no saved index moves. The shared Positions / Waypoints / Favorites Map
-    // applets above stay registered but inactive, so they keep their indices
-    // while no user-facing route can reach them; T5HomeApplet::begin() holds
-    // them off whatever a saved settings file says (Map 12, D6).
+    // no saved index moves. The shared Positions / Waypoints applets above stay
+    // registered but inactive, so they keep their indices while no user-facing
+    // route can reach them; T5HomeApplet::begin() holds them off whatever a
+    // saved settings file says (Map 12, D6).
     t5AddApplet("Map", new InkHUD::T5MapApplet, true,
                 false); // Activated, not autoshown
     // Appended once more, for the same reason: Apps takes slot 16 of 16 and no saved index moves.
@@ -180,11 +187,8 @@ void setupNicheGraphics()
                                      // before they register with it
     InkHUD::T5HomeApplet::begin();   // Saved settings loaded by begin() override
                                      // the defaults above
-    // The native menu is a system applet, so it costs none of the sixteen user slots above. It goes
-    // first among the T5 system applets: earlier means its input claim is checked first, later means it
-    // draws on top, and the menu wants neither - it is the base screen the task layers and the system
-    // layer draw over, so it declines a tap whenever one of them is up (Menu Settings 14)
-    InkHUD::T5MenuApplet::begin();
+    // The menu itself is a user applet, registered above and brought up by the ordinary showApplet
+    // path, so there is nothing to begin here. Only its task layer is a system applet.
     InkHUD::T5MenuTask::begin();      // Its own pickers and confirmations, drawn over it
     InkHUD::T5TracePickTask::begin(); // A task layer, like the composer: before the system layer
     InkHUD::T5ComposeTask::begin();   // Before the system layer: a task's input

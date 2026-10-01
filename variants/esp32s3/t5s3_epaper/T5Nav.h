@@ -38,10 +38,10 @@ bool t5IsConsole(const Applet &a);
 uint16_t t5NavWidth(const Applet &a);
 int16_t t5NavTop(const Applet &a);
 
-// Index in InkHUD::userApplets a destination opens, or -1 when it has no T5 screen. MENU is always
-// -1: the native menu is a system applet and costs no user-applet slot (Menu Settings 14)
+// Index in InkHUD::userApplets a destination opens, or -1 when it has no T5 screen. All six are user
+// applets, MENU included: it holds slot 8 of sixteen (Menu Settings 14)
 int8_t t5DestApplet(T5Dest d);
-bool t5DestAvailable(T5Dest d); // Whether the cell is live, which for MENU the menu itself answers
+bool t5DestAvailable(T5Dest d); // Whether the cell is live
 void t5OpenDest(T5Dest d);      // Shows it, or does nothing at all when it has no T5 screen
 // Hit-tests the six cells only: the Console mode slot never resolves to a cell. An unavailable cell
 // still consumes its tap, so the button fallback never sees it (Redesign 8.4)
