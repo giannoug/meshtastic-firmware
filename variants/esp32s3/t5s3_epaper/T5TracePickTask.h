@@ -28,7 +28,7 @@ recipient picker, and the shared naming helpers, rather than re-deriving either.
 namespace NicheGraphics::InkHUD
 {
 
-class T5TracePickTask : public SystemApplet
+class T5TracePickTask : public T5NavDraw<SystemApplet>
 {
   public:
     T5TracePickTask();
@@ -56,9 +56,6 @@ class T5TracePickTask : public SystemApplet
     std::vector<NodeNum> candidates() const;
     void drawRow(int16_t left, int16_t top, uint16_t w, NodeNum num, bool console);
     void drawCancel();
-    // A task cannot inherit T5Applet, so it cannot inherit its bold print either (the composer has
-    // the same constraint). Same two-pass thickening, so the weight matches every other T5 screen
-    void printBold(int16_t x, int16_t y, const std::string &text, HorizontalAlignment ha = LEFT);
 
     bool open_ = false;
     uint16_t firstRow = 0;          // List index of the first row on screen

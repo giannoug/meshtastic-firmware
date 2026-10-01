@@ -200,12 +200,6 @@ void InkHUD::T5TracePickTask::drawRow(int16_t left, int16_t top, uint16_t w, Nod
 }
 
 // CANCEL stands where the nav would be: a task replaces navigation rather than sitting inside it
-void InkHUD::T5TracePickTask::printBold(int16_t x, int16_t y, const std::string &text, HorizontalAlignment ha)
-{
-    const int16_t w = getTextWidth(text);
-    const int16_t centerX = ha == LEFT ? x + w / 2 : ha == RIGHT ? x - w / 2 : x;
-    printThick(centerX, y + getFont().lineHeight() / 2, text, 2, 1);
-}
 
 void InkHUD::T5TracePickTask::drawCancel()
 {

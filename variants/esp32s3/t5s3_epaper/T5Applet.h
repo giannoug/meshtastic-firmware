@@ -11,6 +11,7 @@ Draws and hit-tests the six-destination nav bar: HOME · MSGS · NODES · MAP ·
 
 #include "configuration.h"
 
+#include "./T5Nav.h"
 #include "./T5Text.h"
 
 #include "graphics/niche/InkHUD/Applet.h"
@@ -18,17 +19,19 @@ Draws and hit-tests the six-destination nav bar: HOME · MSGS · NODES · MAP ·
 namespace NicheGraphics::InkHUD
 {
 
-class T5Applet : public Applet
+class T5Applet : public T5NavDraw<Applet>
 {
   public:
     T5Applet() { hideFromMenu = true; } // T5 screens stay active via T5HomeApplet::begin(), so the menu can't toggle them
 
-    static constexpr uint16_t NAV_H = 88;
-    static constexpr uint16_t CONSOLE_SLOT_W = 150; // Console: trailing mode slot, outside the six nav cells
-    static constexpr uint16_t SIGNAL_W = 41;        // Four 8 px bars, 3 px apart
+    // Geometry shared with the T5 system applets, which cannot inherit this class. T5Nav.h owns the
+    // values; these keep the familiar names for the screens that already use them.
+    static constexpr uint16_t NAV_H = T5_NAV_H;
+    static constexpr uint16_t CONSOLE_SLOT_W = T5_CONSOLE_SLOT_W;
+    static constexpr uint16_t SIGNAL_W = 41; // Four 8 px bars, 3 px apart
     static constexpr uint16_t SIGNAL_H = 22;
-    static constexpr int16_t MARGIN = 16;           // The frozen side gutter, clear of the panel's rejected margin
-    static constexpr int16_t CONSOLE_BAND = 63;     // Console header band, above the first rule
+    static constexpr int16_t MARGIN = T5_MARGIN;
+    static constexpr int16_t CONSOLE_BAND = T5_CONSOLE_BAND;
     static constexpr const char *DASH = "\x97";     // Win-1253 em dash: the value we cannot supply
     static constexpr const char *SEP = "\xB7";      // Win-1253 middle dot: the frozen separator
     static constexpr const char *BACK = "\x8B";     // Win-1253 single left angle quote: parse() has no U+2039
@@ -46,42 +49,42 @@ class T5Applet : public Applet
 
     static std::string hopsString(uint8_t hops); // "direct", "1 hop", "3 hops". Shared with the composer
 
+    static std::string powerLabel(bool console, bool withVoltage = true); // Four states, no FULL
+
     void onForeground() override; // Hides the shared battery icon: every T5
                                   // screen draws its own battery status
 
   protected:
-    enum Destination : uint8_t { HOME, MSGS, NODES, MAP, MENU, APPS };
+    // The shared nav enum under the name every T5 screen already uses
+    using Destination = T5Dest;
+    static constexpr Destination HOME = T5_HOME, MSGS = T5_MSGS, NODES = T5_NODES, MAP = T5_MAP, MENU = T5_MENU, APPS = T5_APPS;
 
     // The nav cell this screen belongs to, drawn inverted. A deeper screen reports the destination it
     // was opened from, so the bar doesn't move on the way down: Node detail sits under NODES.
     virtual Destination currentDestination() = 0;
 
-    bool isConsole() { return width() > height(); }
-    uint16_t navWidth() { return isConsole() ? width() - CONSOLE_SLOT_W : width(); }
-    int16_t navTop() { return height() - NAV_H; }
+    bool isConsole() { return t5IsConsole(*this); }
+    uint16_t navWidth() { return t5NavWidth(*this); }
+    int16_t navTop() { return t5NavTop(*this); }
 
-    void drawNav();
-    bool handleNavTap(uint16_t x, uint16_t y); // True if the tap hit one of the six cells
-    void printBold(int16_t x, int16_t y, const std::string &text, HorizontalAlignment ha = LEFT); // Top-aligned
-    void drawSignal(int16_t left, int16_t bottom, SignalStrength signal); // Four bars, filled to the rating
-    // Boxed label at the right edge of a header band, centred in it. Returns its left edge, so a slot
-    // that is only sometimes filled still reserves its width
-    int16_t boxedLabel(const char *text, int16_t bandH, bool draw = true);
-    void strikeThrough(int16_t left, int16_t centerY,
-                       uint16_t w); // The 2 px unavailable rule, inset 14 px
+    // Thin forwarders, so a T5 screen and a T5 system applet draw the same bar from one
+    // implementation. printBold and boxedLabel are inherited from the mixin.
+    void drawNav() { drawNavBar(currentDestination()); }
+    bool handleNavTap(uint16_t x, uint16_t y) { return t5HandleNavTap(*this, x, y); } // True if a cell was hit
+    void drawSignal(int16_t left, int16_t bottom, SignalStrength signal);             // Four bars, filled to the rating
+    void strikeThrough(int16_t left, int16_t centerY, uint16_t w) { t5StrikeThrough(*this, left, centerY, w); }
 
     // The frozen paging triangles. No Win-1253 glyph exists for either, and a
     // large font for two shapes would be worse than drawing them (V14) - as the
     // mode control already draws its arrows.
-    void drawTriangle(int16_t centerX, int16_t centerY, bool up);
+    void drawTriangle(int16_t centerX, int16_t centerY, bool up) { t5DrawTriangle(*this, centerX, centerY, up); }
 
     static bool heardRecently(const meshtastic_NodeInfoLite *node);
-    static std::string sinceString(uint32_t secs);                        // "now", "5 min", "3 h", "2 d"
-    static std::string agoString(uint32_t secs);                          // "now", "5 min ago", ...
-    static std::string powerLabel(bool console, bool withVoltage = true); // Four states, no FULL
+    static std::string sinceString(uint32_t secs); // "now", "5 min", "3 h", "2 d"
+    static std::string agoString(uint32_t secs);   // "now", "5 min ago", ...
 
-    int8_t destinationApplet(Destination d); // Applet index a destination opens, or -1 if unavailable
-    void openDestination(Destination d);     // Shows it, or does nothing at all when it has no T5 screen yet
+    int8_t destinationApplet(Destination d) { return t5DestApplet(d); } // Applet index, or -1 if unavailable
+    void openDestination(Destination d) { t5OpenDest(d); }              // Shows it, or nothing at all without a T5 screen
 };
 
 } // namespace NicheGraphics::InkHUD

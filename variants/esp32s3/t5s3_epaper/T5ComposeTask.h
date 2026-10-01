@@ -27,6 +27,7 @@ CANCEL, over the keyboard
 
 #include "./T5Keyboard.h"
 #include "./T5MessageModel.h"
+#include "./T5Nav.h"
 #include "./T5Text.h"
 
 #include "graphics/niche/InkHUD/SystemApplet.h"
@@ -34,7 +35,7 @@ CANCEL, over the keyboard
 namespace NicheGraphics::InkHUD
 {
 
-class T5ComposeTask : public SystemApplet, public T5Redrawable
+class T5ComposeTask : public T5NavDraw<SystemApplet>, public T5Redrawable
 {
   public:
     using Convo = T5MessageModel::Convo;
@@ -134,7 +135,6 @@ class T5ComposeTask : public SystemApplet, public T5Redrawable
 
     std::vector<NodeNum> recentNodes(); // Favourites, then DM partners, de-duplicated, capped at four
 
-    void printBold(int16_t x, int16_t y, const std::string &text, HorizontalAlignment ha = LEFT);
     void boxed(int16_t left, int16_t top, uint16_t w, uint16_t h, const std::string &label, bool filled, bool struck);
 
     static constexpr uint32_t SHIFT_DOUBLE_TAP_MS = 400; // Frozen
