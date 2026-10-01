@@ -23,6 +23,7 @@
 #include "graphics/niche/InkHUD/InkHUD.h"
 #include "graphics/niche/InkHUD/Persistence.h"
 #include "graphics/niche/InkHUD/SystemApplet.h"
+#include "graphics/niche/Utils/FlashData.h"
 
 #include "modules/ExternalNotificationModule.h"
 
@@ -566,8 +567,56 @@ void refreshTouchIndicatorInInkHUD(
 
 } // namespace
 
+// The front light survives a reboot, as the frozen DISPLAY page promises (Menu Settings 05,
+// decision 2). InkHUD's own settings are written only on a clean shutdown, so this preference has
+// its own small store - under the key and layout the shared menu already used for it, so a stored
+// value still reads. FlashData is a NicheGraphics tool and does not exist on a build without it;
+// such a build has no DISPLAY page to set the preference from either, so there the light keeps its
+// compiled-in default.
+#ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
+namespace
+{
+constexpr uint32_t T5_BACKLIGHT_PREFS_VERSION = 1;
+
+struct T5BacklightPrefs {
+    uint32_t version = T5_BACKLIGHT_PREFS_VERSION;
+    bool keepOn = true;
+};
+
+T5BacklightPrefs backlightPrefs;
+bool backlightPrefsLoaded = false;
+} // namespace
+
+bool t5BacklightLoadPreference()
+{
+    if (!backlightPrefsLoaded) {
+        T5BacklightPrefs loaded;
+        if (NicheGraphics::FlashData<T5BacklightPrefs>::load(&loaded, "t5_backlight") &&
+            loaded.version == T5_BACKLIGHT_PREFS_VERSION)
+            backlightPrefs = loaded;
+        backlightPrefsLoaded = true;
+    }
+    return backlightPrefs.keepOn;
+}
+
+static void t5BacklightStorePreference(bool enabled)
+{
+    t5BacklightLoadPreference();
+    backlightPrefs.version = T5_BACKLIGHT_PREFS_VERSION;
+    backlightPrefs.keepOn = enabled;
+    NicheGraphics::FlashData<T5BacklightPrefs>::save(&backlightPrefs, "t5_backlight");
+}
+#else
+bool t5BacklightLoadPreference()
+{
+    return true;
+}
+static void t5BacklightStorePreference(bool) {}
+#endif
+
 void t5BacklightSetUserEnabled(bool enabled)
 {
+    const bool changed = backlightUserEnabled != enabled;
     backlightUserEnabled = enabled;
     if (enabled) {
         // Manual ON should release auto-off gates.
@@ -575,6 +624,10 @@ void t5BacklightSetUserEnabled(bool enabled)
         backlightForcedBySleep = false;
     }
     applyBacklightState();
+
+    // Written once per real change, never on a render or a tick
+    if (changed)
+        t5BacklightStorePreference(enabled);
 }
 
 bool t5BacklightIsUserEnabled()

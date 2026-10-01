@@ -187,6 +187,10 @@ void setupNicheGraphics()
 #ifdef T5_INKHUD_SCREENSHOT
     T5Screenshot::begin();
 #endif
+    // The front light is a persisted preference of its own, so restore it here rather than leaving it
+    // at the compiled-in default.
+    t5BacklightSetUserEnabled(t5BacklightLoadPreference());
+
     // Arm GT911 capacitive-home callback only after InkHUD startup is complete.
     t5SetHomeCapButtonEventsEnabled(true);
 

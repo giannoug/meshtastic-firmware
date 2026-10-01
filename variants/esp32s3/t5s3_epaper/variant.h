@@ -43,6 +43,8 @@ void toggleTouchInputEnabled();
 // Backlight control helpers for this variant (non-latching behavior)
 void t5BacklightSetUserEnabled(bool enabled);
 bool t5BacklightIsUserEnabled();
+// The stored preference, for the boot path that restores it. Loading is lazy and cached.
+bool t5BacklightLoadPreference();
 void t5BacklightToggleUser();
 void t5BacklightSetForcedByTimeout(bool forced);
 void t5BacklightSetForcedBySleep(bool forced);
