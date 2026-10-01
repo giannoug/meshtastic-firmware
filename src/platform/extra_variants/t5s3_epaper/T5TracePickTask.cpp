@@ -6,6 +6,7 @@
 
 #include "gps/RTC.h"
 #include "graphics/niche/InkHUD/InkHUD.h"
+#include "graphics/niche/InkHUD/Tile.h"
 #include "mesh/NodeDB.h"
 #include <algorithm>
 
@@ -26,7 +27,12 @@ constexpr uint8_t CONSOLE_COLUMNS = 2;
 InkHUD::T5TracePickTask *instance = nullptr;
 } // namespace
 
-InkHUD::T5TracePickTask::T5TracePickTask() {}
+InkHUD::T5TracePickTask::T5TracePickTask()
+{
+    // A task owns its own full-screen tile, as the composer does: nothing else places one for a
+    // system applet, and begin() sets its region straight after
+    (new Tile)->assignApplet(this);
+}
 
 void InkHUD::T5TracePickTask::begin()
 {
