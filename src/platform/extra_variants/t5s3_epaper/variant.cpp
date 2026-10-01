@@ -26,6 +26,7 @@
 #include "modules/ExternalNotificationModule.h"
 
 #include "T5Applet.h"
+#include "T5AppsApplet.h"
 #include "T5MessageModel.h"
 #include "T5SystemLayer.h"
 #ifdef T5_INKHUD_SCREENSHOT
@@ -178,6 +179,9 @@ void t5SetMode(T5Mode mode)
     // destination and layer are applet members, so they ride the re-layout for
     // free (Messaging Final 09).
     NicheGraphics::InkHUD::T5MessageModel::onModeChanged();
+    // Apps keeps the open tool and its state across the rotate; only the picker's own full-screen
+    // tile has to be re-placed, exactly as the composer's does (Apps 11).
+    NicheGraphics::InkHUD::T5AppsApplet::onModeChanged();
     // Every pixel moved. A blocking FULL merges with that queued FAST
     // (DisplayHealth::prioritize), so the panel does exactly one FULL update and
     // the async render finds nothing left to do.

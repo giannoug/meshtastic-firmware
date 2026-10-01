@@ -51,6 +51,8 @@ class TraceRouteModule : public ProtobufModule<meshtastic_RouteDiscovery>,
        measurement or advances a timer; each is safe to call at any time, including while idle. */
 
     /// Packet id of the most recent request sent by startTraceRoute(), or 0 if none has been sent.
+    /// Only the most recent is kept, which is all one initiator needs: if a second caller starts a
+    /// trace while the first is still waiting, the first caller's reply is no longer recognised.
     /// A fresh id per request, so a caller can tell a retrace to the same node from the one before it.
     uint32_t getLastRequestId() const { return lastRequestId; }
     /// Node the most recent request was addressed to, or 0 if none has been sent.

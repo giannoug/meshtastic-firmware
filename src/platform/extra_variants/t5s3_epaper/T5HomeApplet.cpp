@@ -43,7 +43,7 @@ void InkHUD::T5HomeApplet::begin()
     // T5 applets are appended after the shared applets, so their saved indices
     // are untouched. Settings saved before a T5 applet existed have it inactive;
     // all must be available, and Home shown at boot.
-    for (const char *name : {"Home", "Nodes", "Node Detail", "Messages", "Conversation", "Map"}) {
+    for (const char *name : {"Home", "Nodes", "Node Detail", "Messages", "Conversation", "Map", "Apps"}) {
         const int8_t i = indexOf(name);
         assert(i >= 0);
         saved.userApplets.active[i] = true;
