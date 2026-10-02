@@ -7,6 +7,9 @@
 #if !MESHTASTIC_EXCLUDE_REPLYBOT
 #include "ReplyBotModule.h"
 #endif
+#if !MESHTASTIC_EXCLUDE_MESHBOT
+#include "MeshBotModule.h"
+#endif
 #if !MESHTASTIC_EXCLUDE_PKI
 #include "KeyVerificationModule.h"
 #endif
@@ -172,6 +175,11 @@ void setupModules()
 #endif
 #if !MESHTASTIC_EXCLUDE_TRACEROUTE
     traceRouteModule = new TraceRouteModule();
+#endif
+#if !MESHTASTIC_EXCLUDE_MESHBOT
+    // After TraceRouteModule: its alterReceivedProtobuf re-encodes the route array in place, and the
+    // bot's /trace reply reads the padded unknown hops and receive SNR that pass leaves behind.
+    new MeshBotModule();
 #endif
 #if !MESHTASTIC_EXCLUDE_NEIGHBORINFO
     if (moduleConfig.has_neighbor_info && moduleConfig.neighbor_info.enabled) {
