@@ -7,6 +7,9 @@
 #if !MESHTASTIC_EXCLUDE_REPLYBOT
 #include "ReplyBotModule.h"
 #endif
+#if !MESHTASTIC_EXCLUDE_MESHBOT
+#include "MeshBotModule.h"
+#endif
 #if !MESHTASTIC_EXCLUDE_PKI
 #include "KeyVerificationModule.h"
 #endif
@@ -172,6 +175,9 @@ void setupModules()
 #endif
 #if !MESHTASTIC_EXCLUDE_TRACEROUTE
     traceRouteModule = new TraceRouteModule();
+#endif
+#if !MESHTASTIC_EXCLUDE_MESHBOT
+    new MeshBotModule();
 #endif
 #if !MESHTASTIC_EXCLUDE_NEIGHBORINFO
     if (moduleConfig.has_neighbor_info && moduleConfig.neighbor_info.enabled) {
