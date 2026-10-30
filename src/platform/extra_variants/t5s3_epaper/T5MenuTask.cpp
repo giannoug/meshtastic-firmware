@@ -224,15 +224,21 @@ void InkHUD::T5MenuTask::drawHeader(const std::string &title, const std::string 
 {
     const bool console = t5IsConsole(*this);
     // The header is the question, and there is no Back: a task is left by CANCEL or by Home
-    setFont(fontLarge);
-    printBold(T5_MARGIN, console ? (m.headerH - fontLarge.lineHeight()) / 2 : 14, title);
+    // Large bold in Console, medium bold in Carry at baseline 46 (Panel Fit D3)
+    if (console) {
+        setFont(fontLarge);
+        printBold(T5_MARGIN, (m.headerH - fontLarge.lineHeight()) / 2, title);
+    } else {
+        setFont(fontMedium);
+        printBold(T5_MARGIN, 46 - fontMedium.heightAboveCursor(), title);
+    }
 
     setFont(fontSmall);
     if (console) {
         printAt(width() - T5_MARGIN, (m.headerH - fontSmall.lineHeight()) / 2, context, RIGHT);
     } else {
         setCrop(T5_MARGIN, 0, (uint16_t)(width() - 2 * T5_MARGIN), m.headerH);
-        printAt(T5_MARGIN, 66, t5Elide(*this, context, (uint16_t)(width() - 2 * T5_MARGIN)));
+        printAt(T5_MARGIN, 80 - fontSmall.heightAboveCursor(), t5Elide(*this, context, (uint16_t)(width() - 2 * T5_MARGIN)));
         resetCrop();
     }
     drawLine(0, m.headerH, width() - 1, m.headerH, BLACK);

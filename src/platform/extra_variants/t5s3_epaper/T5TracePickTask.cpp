@@ -18,7 +18,7 @@ namespace
 // two columns of shorter rows, filled column by column
 constexpr int16_t CARRY_HEADER_H = 100;
 constexpr int16_t CONSOLE_HEADER_H = 63;
-constexpr int16_t CARRY_ROW_H = 84;
+constexpr int16_t CARRY_ROW_H = 72; // Nine a page (Panel Fit D3)
 constexpr int16_t CONSOLE_ROW_H = 72;
 constexpr int16_t BUTTON_BAND = 88; // Where the nav would be: the task puts CANCEL there instead
 constexpr int16_t PAGER_H = 64;
@@ -178,7 +178,7 @@ void InkHUD::T5TracePickTask::drawRow(int16_t left, int16_t top, uint16_t w, Nod
     // The hops badge: what the NodeDB believes, so the user knows roughly what to expect
     std::string hops = "? HOPS";
     if (node && node->has_hops_away)
-        hops = node->hops_away == 0 ? "DIRECT" : to_string(node->hops_away) + " HOPS";
+        hops = node->hops_away == 0 ? "DIRECT" : to_string(node->hops_away) + (node->hops_away == 1 ? " HOP" : " HOPS");
     setFont(Applet::fontSmall);
     const int16_t hopsW = getTextWidth(hops);
     printAt(right - T5Applet::MARGIN, top + rowH / 2, hops, RIGHT, MIDDLE);
@@ -199,12 +199,13 @@ void InkHUD::T5TracePickTask::drawRow(int16_t left, int16_t top, uint16_t w, Nod
     const int16_t nameLeft = left + T5Applet::MARGIN;
     const int16_t textW = std::max<int16_t>(0, textRight - nameLeft);
     setCrop(nameLeft, top, textW, rowH);
-    printBold(nameLeft, top + (console ? 6 : 12), t5Elide(*this, t5NodeTitle(num), textW > 2 ? textW - 2 : 0)); // 2 px bold
+    printBold(nameLeft, top + (console ? 6 : 5), t5Elide(*this, t5NodeTitle(num), textW > 2 ? textW - 2 : 0)); // 2 px bold
     resetCrop();
 
     setFont(Applet::fontSmall);
     setCrop(nameLeft, top, textW, rowH);
-    printAt(nameLeft, top + (console ? 6 : 12) + Applet::fontMedium.lineHeight() + 4, t5Elide(*this, sub, textW));
+    // Carry baselines top+34 and top+62 (Panel Fit D3)
+    printAt(nameLeft, console ? top + 6 + Applet::fontMedium.lineHeight() + 4 : top + 45, t5Elide(*this, sub, textW));
     resetCrop();
 
     drawLine(left, top + rowH - 1, right - 1, top + rowH - 1, BLACK);
@@ -244,13 +245,19 @@ void InkHUD::T5TracePickTask::onRender(bool full)
     rowWidths.clear();
 
     // The header is the question, and there is no Back: a task is left by CANCEL or by Home
-    setFont(Applet::fontLarge);
-    printBold(T5Applet::MARGIN, console ? (bandH - Applet::fontLarge.lineHeight()) / 2 : 14, "TRACE WHICH NODE?");
+    // Task titles are large bold in Console, medium bold in Carry at baseline 46 (Panel Fit D3)
+    if (console) {
+        setFont(Applet::fontLarge);
+        printBold(T5Applet::MARGIN, (bandH - Applet::fontLarge.lineHeight()) / 2, "TRACE WHICH NODE?");
+    } else {
+        setFont(Applet::fontMedium);
+        printBold(T5Applet::MARGIN, 46 - Applet::fontMedium.heightAboveCursor(), "TRACE WHICH NODE?");
+    }
     setFont(Applet::fontSmall);
     if (console)
         printAt(width() - T5Applet::MARGIN, (bandH - Applet::fontSmall.lineHeight()) / 2, "SELECT TARGET", RIGHT);
     else
-        printAt(T5Applet::MARGIN, 66, "SELECT TARGET");
+        printAt(T5Applet::MARGIN, 80 - Applet::fontSmall.heightAboveCursor(), "SELECT TARGET");
     drawLine(0, bandH, width() - 1, bandH, BLACK);
 
     const std::vector<NodeNum> all = candidates();
