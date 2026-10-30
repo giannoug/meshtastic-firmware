@@ -100,9 +100,9 @@ std::vector<meshtastic_NodeInfoLite *> InkHUD::T5NodesApplet::sortedNodes()
 InkHUD::T5NodesApplet::Row InkHUD::T5NodesApplet::readRow(meshtastic_NodeInfoLite *node)
 {
     Row row;
-    row.shortName = parseShortName(node);
-    // t5Parse, not parse(): Home and Node detail read rows too, and parse() decodes with this applet's last
-    // font, which before its first render cannot map U+2019
+    // T5 helpers, not parseShortName() / parse(): Home and Node detail read rows too, and those decode with
+    // this applet's last font, which before its first render cannot map U+2019. Same tag as everywhere else
+    row.shortName = t5NodeTag(node->num);
     row.longName = nodeInfoLiteHasUser(node) ? t5Parse(node->long_name) : hexifyNodeNum(node->num);
     if (node->last_heard)
         row.heardSecs = sinceLastSeen(node);
