@@ -58,38 +58,36 @@ void InkHUD::T5ThreadApplet::enter(Thread &t, const Convo &c)
 // privacy line for a channel
 std::string InkHUD::T5ThreadApplet::threadSubtitle(const Convo &c)
 {
-    std::string line;
-    if (c.isChannel()) {
-        const bool primary = c.channel == channels.getPrimaryIndex();
-        line = primary ? "PRIMARY" : "CHANNEL " + to_string(c.channel);
-        const meshtastic_Channel &ch = channels.getByIndex(c.channel);
-        line = join(line, ch.settings.psk.size == 0              ? "NO KEY \xB7 SENT IN THE CLEAR"
-                          : channels.isDefaultChannel(c.channel) ? "DEFAULT KEY \xB7 READABLE BY ANY NODE"
-                                                                 : "PRIVATE KEY");
-    } else {
-        meshtastic_NodeInfoLite *node = nodeDB->getMeshNode(c.peer);
-        line = "DIRECT";
-        if (node && node->last_heard) {
-            const std::string heard = t5ListTime(node->last_heard, false);
-            if (!heard.empty())
-                line = join(line, "HEARD " + heard);
-        }
-        if (node && node->has_hops_away) {
-            std::string hops = hopsString(node->hops_away);
-            for (char &ch : hops)
-                ch = toupper(ch);
-            line = join(line, node->hops_away == 0 ? "DIRECT LINK" : hops);
-        }
-        if (!node)
-            line = join(line, "NOT IN NODE LIST");
-    }
-
     // The frozen fallback when nothing can be dated: day dividers and times are
     // dropped, and the header says so once rather than leaving every message
     // looking undated by accident.
-    if (!getValidTime(RTCQuality::RTCQualityDevice, true))
+    const bool noClock = !getValidTime(RTCQuality::RTCQualityDevice, true);
+
+    // A channel shows its key state only: the index is in the status slot (Panel Fit D14)
+    if (c.isChannel()) {
+        const meshtastic_Channel &ch = channels.getByIndex(c.channel);
+        const std::string line = ch.settings.psk.size == 0              ? "NO KEY \xB7 SENT IN THE CLEAR"
+                                 : channels.isDefaultChannel(c.channel) ? "DEFAULT KEY \xB7 ANY NODE CAN READ"
+                                                                        : "PRIVATE KEY \xB7 KEY HOLDERS ONLY";
+        return noClock ? join(line, "NO CLOCK") : line;
+    }
+
+    // A DM: the link state, then the long name last, so it is the only part an elision can reach (D14, D15)
+    meshtastic_NodeInfoLite *node = nodeDB->getMeshNode(c.peer);
+    std::string line;
+    if (node && node->has_hops_away) {
+        line = hopsString(node->hops_away);
+        for (char &ch : line)
+            ch = toupper(ch);
+    }
+    if (node && node->last_heard) {
+        const std::string heard = t5ListTime(node->last_heard, false);
+        if (!heard.empty())
+            line = join(line, "HEARD " + heard);
+    }
+    if (noClock)
         line = join(line, "NO CLOCK");
-    return line;
+    return join(line, node && nodeInfoLiteHasUser(node) ? t5Parse(node->long_name) : std::string("UNKNOWN NODE"));
 }
 
 std::string InkHUD::T5ThreadApplet::dayLabel(const StoredMessage *m)

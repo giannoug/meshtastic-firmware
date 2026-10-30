@@ -83,7 +83,8 @@ void InkHUD::T5NodeDetailApplet::onRender(bool full)
         // One-part title "‹ KB7X", the id where the status sits, the long name on line 2 (Panel Fit D12)
         drawSubPageTitle(row.shortName, id);
         setFont(fontSmall);
-        printAt(MARGIN, 80 - 19, t5Elide(*this, row.longName, width() - 2 * MARGIN));
+        // No long name: UNKNOWN NODE, so the id is drawn once (Panel Fit D15)
+        printAt(MARGIN, 80 - 19, t5Elide(*this, nodeInfoLiteHasUser(info) ? row.longName : "UNKNOWN NODE", width() - 2 * MARGIN));
         drawLine(0, 99, width() - 1, 99, BLACK);
     }
 

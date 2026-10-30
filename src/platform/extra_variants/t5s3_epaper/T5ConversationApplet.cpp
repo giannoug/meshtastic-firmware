@@ -65,30 +65,10 @@ void InkHUD::T5ConversationApplet::onRender(bool full)
     const Convo &c = thread.convo;
     const int16_t right = width() - MARGIN;
 
-    // Header: the whole band is the Back target. The title and the long name
-    // share a baseline, as on Node detail, with the frozen second line below
-    // them.
-    const std::string back = std::string(BACK) + " " + t5ConvoTag(c);
-    setFont(fontLarge);
-    printBold(MARGIN, 6, back);
-    const int16_t backRight = MARGIN + getTextWidth(back); // In the large font it was drawn in
-    const int16_t baseline = 6 + fontLarge.heightAboveCursor();
-
-    // A DM shows its node id at the right; a channel has nothing to put there
-    const std::string id = c.isChannel() ? "" : hexifyNodeNum(c.peer);
-    setFont(fontSmall);
-    int16_t idLeft = right;
-    if (!id.empty()) {
-        idLeft = right - getTextWidth(id);
-        printAt(right, baseline - fontSmall.heightAboveCursor(), id, RIGHT);
-    }
-
-    setFont(fontMedium);
-    const int16_t column = std::max<int16_t>(150, backRight + 12);
-    const int16_t titleW = std::max<int16_t>(0, idLeft - 12 - column);
-    setCrop(column, 0, titleW, 64);
-    printAt(column, baseline - fontMedium.heightAboveCursor(), t5Elide(*this, t5ConvoTitle(c), titleW));
-    resetCrop();
+    // Header: "‹ TARGET" in medium bold, the address ("CH n" or the node id) in the status slot (Panel
+    // Fit D14). The target is the reply bar's, in stored case
+    carryBackRight = drawSubPageTitle(c.isChannel() ? t5ConvoTitle(c) : t5ConvoTag(c),
+                                      c.isChannel() ? "CH " + to_string(c.channel) : hexifyNodeNum(c.peer));
 
     // Line 2, plus the frozen "n NEW" tag at its right end while something
     // arrived elsewhere
@@ -98,14 +78,14 @@ void InkHUD::T5ConversationApplet::onRender(bool full)
     if (model && model->tag()) {
         const std::string tag = to_string(model->tag()) + " NEW";
         const int16_t tw = getTextWidth(tag) + 20;
-        fillRect(right - tw, 68, tw, fontSmall.lineHeight() + 6, BLACK);
+        fillRect(right - tw, 80 - 19 - 3, tw, fontSmall.lineHeight() + 6, BLACK);
         setTextColor(WHITE);
-        printBold(right - 10, 71, tag, RIGHT);
+        printBold(right - 10, 80 - 19, tag, RIGHT);
         setTextColor(BLACK);
         line2Right = right - tw - 12;
     }
-    setCrop(MARGIN, 64, std::max<int16_t>(0, line2Right - MARGIN), 35);
-    printAt(MARGIN, 70, t5Elide(*this, threadSubtitle(c), std::max<int16_t>(0, line2Right - MARGIN)));
+    setCrop(MARGIN, 56, std::max<int16_t>(0, line2Right - MARGIN), 43);
+    printAt(MARGIN, 80 - 19, t5Elide(*this, threadSubtitle(c), std::max<int16_t>(0, line2Right - MARGIN))); // Baseline 80
     resetCrop();
     drawLine(0, HEADER_H, width() - 1, HEADER_H, BLACK);
 
@@ -115,8 +95,9 @@ void InkHUD::T5ConversationApplet::onRender(bool full)
     // REPLY bar
     drawLine(0, REPLY_TOP, width() - 1, REPLY_TOP, BLACK);
     setFont(fontMedium);
-    printBold(width() / 2, REPLY_TOP + (navTop() - 1 - REPLY_TOP - fontMedium.lineHeight()) / 2, replyLabel(thread.convo),
-              CENTER);
+    // A channel target is user data and elides at 476; a short name never needs to (D14)
+    printBold(width() / 2, REPLY_TOP + (navTop() - 1 - REPLY_TOP - fontMedium.lineHeight()) / 2,
+              t5Elide(*this, replyLabel(thread.convo), width() - 2 * MARGIN - 1), CENTER);
 
     drawNav();
 }
@@ -133,7 +114,7 @@ bool InkHUD::T5ConversationApplet::onTouchPoint(uint16_t x, uint16_t y, bool lon
     if (handleNavTap(tx, ty))
         return true;
 
-    if (ty < HEADER_H) {
+    if (ty < HEADER_H && tx < carryBackRight) {
         T5MessagesApplet::open(); // Structural Back: the Messages root, never Home
                                   // and never here again
         return true;
