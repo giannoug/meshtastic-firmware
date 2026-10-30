@@ -87,12 +87,14 @@ class T5ThreadApplet : public T5Applet
     void drawBlock(const Block &b, int16_t left, int16_t top, uint16_t w, bool console, Thread &t);
     std::string dayLabel(const StoredMessage *m);
 
-    static constexpr int16_t GAP = 16;       // Between message blocks
-    static constexpr int16_t RULE = 2;       // The in/out rule
-    static constexpr int16_t PAD = 12;       // Between the rule and the text
-    static constexpr int16_t SENDER_GAP = 4; // Sender line to first body line
+    // A message is 24 (small sender line) + 34 per medium body line + 8 (Panel Fit D10)
+    static constexpr int16_t GAP = 8;         // Between message blocks
+    static constexpr int16_t SENDER_H = 24;   // The sender line's pitch
+    static constexpr int16_t BODY_PITCH = 34; // Medium body lines
+    static constexpr int16_t RULE = 2;        // The in/out rule
+    static constexpr int16_t PAD = 12;        // Between the rule and the text
     static constexpr int16_t RETRY_GAP = 10;
-    static constexpr int16_t DIVIDER_H = 30;  // Dotted rule plus its label
+    static constexpr int16_t DIVIDER_H = 32;  // Dotted rule plus its label
     static constexpr int16_t NEW_RULE_H = 30; // The unread boundary
 };
 

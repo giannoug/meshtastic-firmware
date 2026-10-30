@@ -134,9 +134,11 @@ InkHUD::T5ThreadApplet::Block InkHUD::T5ThreadApplet::buildBlock(const StoredMes
     }
     b.time = t5ListTime(m->timestamp, m->isBootRelative);
 
+    setFont(fontMedium);
     b.lines = t5WrapLines(*this, parse(MessageStore::getText(*m)), textW);
+    setFont(fontSmall);
 
-    b.height = fontSmall.lineHeight() + SENDER_GAP + (int16_t)b.lines.size() * fontSmall.lineHeight() + GAP;
+    b.height = SENDER_H + (int16_t)b.lines.size() * BODY_PITCH + GAP;
     if (b.retry)
         b.height += RETRY_GAP + fontSmall.lineHeight() + 2 * 12 + 2 * RULE;
     return b;
@@ -151,7 +153,7 @@ void InkHUD::T5ThreadApplet::drawBlock(const Block &b, int16_t left, int16_t top
     if (b.outgoing) {
         const int16_t right = left + w;
         const int16_t textRight = right - PAD - RULE;
-        const int16_t bodyH = lh + SENDER_GAP + (int16_t)b.lines.size() * lh;
+        const int16_t bodyH = SENDER_H + (int16_t)b.lines.size() * BODY_PITCH;
         fillRect(right - RULE, top, RULE, bodyH,
                  BLACK); // The 2 px right rule marks it as ours
 
@@ -189,11 +191,13 @@ void InkHUD::T5ThreadApplet::drawBlock(const Block &b, int16_t left, int16_t top
         }
         printBold(x, top, b.senderTag, RIGHT);
 
-        int16_t y = top + lh + SENDER_GAP;
+        int16_t y = top + SENDER_H;
+        setFont(fontMedium);
         for (const std::string &line : b.lines) {
             printAt(textRight, y, line, RIGHT);
-            y += lh;
+            y += BODY_PITCH;
         }
+        setFont(fontSmall);
 
         if (b.retry) {
             const int16_t bw = getTextWidth("RETRY") + 2 * 22 + 2 * RULE, bh = lh + 2 * 12 + 2 * RULE;
@@ -214,7 +218,7 @@ void InkHUD::T5ThreadApplet::drawBlock(const Block &b, int16_t left, int16_t top
     // edge
     const int16_t textLeft = left + RULE + PAD;
     const uint16_t textW = w - indent - PAD - RULE;
-    const int16_t bodyH = lh + SENDER_GAP + (int16_t)b.lines.size() * lh;
+    const int16_t bodyH = SENDER_H + (int16_t)b.lines.size() * BODY_PITCH;
     fillRect(left, top, RULE, bodyH, BLACK);
 
     printBold(textLeft, top, b.senderTag);
@@ -225,11 +229,13 @@ void InkHUD::T5ThreadApplet::drawBlock(const Block &b, int16_t left, int16_t top
     if (!b.time.empty())
         printAt(textLeft + textW, top, b.time, RIGHT);
 
-    int16_t y = top + lh + SENDER_GAP;
+    int16_t y = top + SENDER_H;
+    setFont(fontMedium);
     for (const std::string &line : b.lines) {
         printAt(textLeft, y, line);
-        y += lh;
+        y += BODY_PITCH;
     }
+    setFont(fontSmall);
 }
 
 // Pages are built backwards from the newest message: the page the user is on
@@ -328,11 +334,11 @@ void InkHUD::T5ThreadApplet::drawThread(Thread &t, int16_t left, int16_t top, ui
 
     for (size_t i = from; i < to; i++) {
         if (!dividers[i].empty()) {
+            // Label at baseline top+25, the dotted rule at top+16 broken around it (Panel Fit D10)
             setFont(fontSmall);
-            const int16_t mid = y + DIVIDER_H / 2;
-            for (int16_t x = left; x < left + (int16_t)w; x += 4)
-                drawPixel(x, mid + 10, BLACK);
-            printBold(left, y, dividers[i]);
+            for (int16_t x = left + getTextWidth(dividers[i]) + 1 + 8; x < left + (int16_t)w; x += 4)
+                drawPixel(x, y + 16, BLACK);
+            printBold(left, y + 25 - 19, dividers[i]);
             y += DIVIDER_H;
         }
         if (i == firstUnread) {
