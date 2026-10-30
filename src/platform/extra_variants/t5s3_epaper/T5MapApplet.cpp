@@ -1350,11 +1350,16 @@ void InkHUD::T5MapApplet::drawPanel(const Layout &l)
 
     setFont(fontLarge);
     printBold(l.console ? 628 : MARGIN, l.console ? 74 : 666, tag);
+    // The long name starts after the tag as drawn (Carry), or below it (Console), never inside it
+    const int16_t tagRight = MARGIN + getTextWidth(tag) + 2 + 12;
+    const int16_t nameTop = l.console ? 74 + fontLarge.lineHeight() : 673;
 
+    setFont(fontSmall);
+    const int16_t rightLeft = width() - MARGIN - getTextWidth(right) - 12;
     setFont(l.console ? fontSmall : fontMedium);
-    const int16_t nameLeft = l.console ? 628 : 118;
-    const uint16_t nameW = l.console ? 284 : 266;
-    printAt(nameLeft, l.console ? 114 : 673, t5Elide(*this, t5NodeTitle(selected), nameW));
+    const int16_t nameLeft = l.console ? 628 : std::max<int16_t>(118, tagRight);
+    const int16_t nameW = l.console ? 284 : rightLeft - nameLeft;
+    printAt(nameLeft, nameTop, t5Elide(*this, t5NodeTitle(selected), std::max<int16_t>(0, nameW)));
 
     if (nopos) {
         // SHOW ON MAP still opens the map; it does not pretend. The panel names the node and says why it
