@@ -303,21 +303,18 @@ void InkHUD::T5HomeApplet::onRender(bool full)
         renderCarry(s);
 }
 
-// Word-wrapped, showing only the whole lines which fit above bottom; the last one ends in an ellipsis when
-// text is left over. Lines are placed one by one: printWrapped's step is shorter than a glyph box
-void InkHUD::T5HomeApplet::printClipped(int16_t left, int16_t top, uint16_t w, int16_t bottom, const std::string &text)
+// Word-wrapped onto at most `lines` lines placed by baseline (Panel Fit G1: pitch is cap + descender, no
+// leading), the last ending in an ellipsis when text is left over
+void InkHUD::T5HomeApplet::printClipped(int16_t left, int16_t firstBaseline, uint16_t w, uint8_t lines, int16_t pitch,
+                                        const std::string &text)
 {
     AppletFont font = getFont();
-    const int16_t lineBox = font.heightAboveCursor() + font.heightBelowCursor();
-    if (bottom - top < lineBox)
-        return;
-    const size_t fit = (bottom - top - lineBox) / font.lineHeight() + 1;
-    const std::vector<std::string> lines = t5WrapLines(*this, text, w);
-    for (size_t i = 0; i < lines.size() && i < fit; i++) {
-        std::string line = lines[i];
-        if (i + 1 == fit && lines.size() > fit)
-            line = t5Elide(*this, line + " " + lines[i + 1], w);
-        printAt(left, top + (int16_t)i * font.lineHeight(), line);
+    const std::vector<std::string> wrapped = t5WrapLines(*this, text, w);
+    for (size_t i = 0; i < wrapped.size() && i < lines; i++) {
+        std::string line = wrapped[i];
+        if (i + 1 == lines && wrapped.size() > lines)
+            line = t5Elide(*this, line + " " + wrapped[i + 1], w);
+        printAt(left, firstBaseline + (int16_t)i * pitch - font.heightAboveCursor(), line);
     }
 }
 
@@ -431,8 +428,9 @@ void InkHUD::T5HomeApplet::renderCarry(const Status &s)
         drawRect(MARGIN, 152, innerW, 116, BLACK);
         drawRect(MARGIN + 1, 153, innerW - 2, 114, BLACK);
         printAt(MARGIN + 12, 160, join(join(s.latestKind, s.latestSender), s.latestClock));
-        setFont(fontLarge);
-        printClipped(MARGIN + 12, 186, innerW - 24, 266, s.latestText);
+        // Panel Fit D6: medium regular, two lines on baselines 218 / 252, x 28, width 452
+        setFont(fontMedium);
+        printClipped(MARGIN + 12, 218, innerW - 24, 2, 34, s.latestText);
     }
     drawLine(MARGIN, 288, right - 1, 288, BLACK);
     drawConversation(MARGIN, 288, innerW, s.channel0Title, s.channel0Subtitle, s.unreadChannel0);
@@ -510,7 +508,7 @@ void InkHUD::T5HomeApplet::renderConsole(const Status &s)
         for (int16_t dx = 0; dx < 330; dx += 2)
             drawPixel(MARGIN + dx, 146, BLACK);
         setFont(fontLarge);
-        printClipped(MARGIN, 158, 340, 292, s.latestText);
+        printClipped(MARGIN, 192, 330, 2, 45, s.latestText); // D6: Console LATEST large, baselines 192 / 237
         setFont(fontSmall);
     }
     for (int16_t y = 72; y < 296; y += 2) {

@@ -59,7 +59,7 @@ class T5HomeApplet : public T5Applet, public concurrency::OSThread, public T5Red
     void drawConversation(int16_t left, int16_t top, uint16_t w, const std::string &title, const std::string &subtitle,
                           uint16_t unseen);
     void drawModeControl(int16_t x, int16_t y, uint16_t w, uint16_t h);
-    void printClipped(int16_t left, int16_t top, uint16_t w, int16_t bottom, const std::string &text);
+    void printClipped(int16_t left, int16_t firstBaseline, uint16_t w, uint8_t lines, int16_t pitch, const std::string &text);
     std::string senderName(NodeNum num);
     const StoredMessage *latestIncoming(bool dmOnly = false);
     void drawHeardRow(int16_t left, int16_t top, uint16_t w, const T5NodesApplet::Row &row);
