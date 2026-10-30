@@ -191,7 +191,7 @@ void InkHUD::T5NodesApplet::renderCarry(const std::vector<Row> &rows, uint16_t n
         const int16_t sortLeft = boxedLabel("LAST HEARD", 79);
         setFont(fontLarge);
         printBold(MARGIN, 14, "NODES");
-        int16_t x = MARGIN + getTextWidth("NODES") + 10; // 10, not 12: a two-digit count then fits whole
+        int16_t x = MARGIN + getTextWidth("NODES") + 8; // 8, not 12: any two-digit count then fits whole
         const int16_t countsTop = 14 + fontLarge.heightAboveCursor() - fontSmall.heightAboveCursor();
         setFont(fontSmall);
         const std::string nodesText = to_string(nodes) + " NODES", heardText = to_string(heard) + " HEARD 10M";
