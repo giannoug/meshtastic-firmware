@@ -1015,7 +1015,7 @@ void InkHUD::T5MapApplet::drawUs(const Layout &l, int16_t x, int16_t y)
 
 // Two 1 px dotted rings around US, at one and two steps. They stand in for the missing basemap, and they
 // are part of the base render: no separate decoration pass, and no update of their own (Map 03, D7).
-void InkHUD::T5MapApplet::drawRings(const Layout &l, int16_t ux, int16_t uy, std::vector<Rect> &taken)
+void InkHUD::T5MapApplet::drawRings(const Layout &l, int16_t ux, int16_t uy)
 {
     for (uint8_t ring = 1; ring <= 2; ring++) {
         const int16_t r = ring * l.pxPerStep;
@@ -1027,27 +1027,30 @@ void InkHUD::T5MapApplet::drawRings(const Layout &l, int16_t ux, int16_t uy, std
                 drawPixel(x, y, BLACK);
         }
     }
+}
 
-    // The label sits at the top of each ring, and moves to the next free compass point - right, bottom,
-    // left - rather than colliding with a marker or a node label. If none is free it is dropped for that
-    // ring: the SCALE cell always states the step anyway (Map 03).
+// Ring labels are placed last: markers, their labels, badges, the focus box and US are reserved first,
+// and never move for a label. Each label tries the top of its ring, then the bottom, right and left, in a
+// text + 8 by 26 box with its baseline 9 px below the point; with all four covered it is skipped, as the
+// SCALE cell states the step anyway (Panel Fit D11).
+void InkHUD::T5MapApplet::labelRings(const Layout &l, int16_t ux, int16_t uy, std::vector<Rect> &taken)
+{
+    taken.push_back(Rect{(int16_t)(ux - 16), (int16_t)(uy - 16), 32, 32}); // US: the 26 px ring and its halo
     setFont(fontSmall);
-    const int16_t lh = fontSmall.lineHeight();
     for (uint8_t ring = 1; ring <= 2; ring++) {
         const int16_t r = ring * l.pxPerStep;
         const std::string label = rungLabel(rung, ring == 2);
-        const uint16_t tw = getTextWidth(label) + 2 * 3;
-        // The top of the ring first, then right, bottom and left (Map 03)
+        const uint16_t tw = getTextWidth(label) + 8;
         const int16_t at[4][2] = {
-            {ux, (int16_t)(uy - r)}, {(int16_t)(ux + r), uy}, {ux, (int16_t)(uy + r)}, {(int16_t)(ux - r), uy}};
+            {ux, (int16_t)(uy - r)}, {ux, (int16_t)(uy + r)}, {(int16_t)(ux + r), uy}, {(int16_t)(ux - r), uy}};
         for (uint8_t side = 0; side < 4; side++) {
-            const Rect box{(int16_t)(at[side][0] - tw / 2), (int16_t)(at[side][1] - lh / 2), tw, (uint16_t)lh};
+            const Rect box{(int16_t)(at[side][0] - tw / 2), (int16_t)(at[side][1] - 13), tw, 26};
             if (box.l < 0 || box.l + (int16_t)box.w > l.mapW || box.t < l.mapTop || box.t + (int16_t)box.h > l.mapTop + l.mapH)
                 continue;
             if (!place(taken, box))
                 continue;
             fillRect(box.l, box.t, box.w, box.h, WHITE);
-            printAt(box.l + 3, box.t, label);
+            printAt(box.l + 4, at[side][1] + 9 - 19, label); // Small caps end 19 px below the print top
             break;
         }
     }
@@ -1265,11 +1268,13 @@ void InkHUD::T5MapApplet::drawMapBand(const Layout &l)
 
     std::vector<Rect> taken;
     if (usOnScreen)
-        drawRings(l, ux, uy, taken);
+        drawRings(l, ux, uy);
     else
         drawScaleBar(l); // The rings went with us, so a scale bar takes over (E1, E8)
 
     drawMarkers(l, taken);
+    if (usOnScreen)
+        labelRings(l, ux, uy, taken);
 
     // Off-screen awareness, for the selection and for us alone
     const Plot *sel = find(selected);

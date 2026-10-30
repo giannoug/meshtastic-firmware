@@ -215,7 +215,8 @@ class T5MapApplet : public T5Applet, public SinglePortModule, public concurrency
     void drawPanel(const Layout &l);
 
     void drawUs(const Layout &l, int16_t x, int16_t y);
-    void drawRings(const Layout &l, int16_t ux, int16_t uy, std::vector<Rect> &taken);
+    void drawRings(const Layout &l, int16_t ux, int16_t uy);
+    void labelRings(const Layout &l, int16_t ux, int16_t uy, std::vector<Rect> &taken);
     void drawMarkers(const Layout &l, std::vector<Rect> &taken);
     void drawEdgeTag(const Layout &l, const std::string &name, const std::string &away, int16_t degrees, Rect &box);
     void drawScaleBar(const Layout &l);
