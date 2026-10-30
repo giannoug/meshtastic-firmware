@@ -374,15 +374,19 @@ void InkHUD::T5HomeApplet::drawModeControl(int16_t x, int16_t y, uint16_t w, uin
 void InkHUD::T5HomeApplet::drawHeardRow(int16_t left, int16_t top, uint16_t w, const T5NodesApplet::Row &row)
 {
     const int16_t right = left + w;
+    // Distance when we can compute it, otherwise how far away the node is in hops
+    const std::string meta = row.distance.empty() ? (row.hops < 0 ? "" : hopsString(row.hops)) : row.distance;
+    setFont(fontSmall);
+    const int16_t metaW = meta.empty() ? 0 : getTextWidth(meta) + 1 + 12; // 1 px bold, then the gap
     setFont(fontMedium);
     setCrop(left, top, w - SIGNAL_W - 12, 84);
     printBold(left, top + 12, row.shortName);
     setFont(fontSmall);
-    printAt(left, top + 54, row.longName);
+    // The long name shares its line with the distance: elided short of it, never under it
+    printAt(left, top + 54, t5Elide(*this, row.longName, std::max<int16_t>(0, std::min<int16_t>(w - SIGNAL_W - 12, w - metaW))));
     resetCrop();
 
-    // Distance when we can compute it, otherwise how far away the node is in hops
-    printBold(right, top + 48, row.distance.empty() ? (row.hops < 0 ? "" : hopsString(row.hops)) : row.distance, RIGHT);
+    printBold(right, top + 48, meta, RIGHT);
     if (row.signal != SIGNAL_UNKNOWN)
         drawSignal(right - SIGNAL_W, top + 14 + SIGNAL_H, row.signal);
     drawLine(left, top + 83, right - 1, top + 83, BLACK);
