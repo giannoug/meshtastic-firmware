@@ -19,7 +19,7 @@ constexpr int16_t CARRY_LABEL_H = 36;
 constexpr int16_t CARRY_ROW_H = 84;
 constexpr int16_t CARRY_CONTENT_TOP = 80;
 constexpr int16_t CARRY_PAGER_H = 64;
-constexpr int16_t CARRY_TAG_COLUMN = 112; // Where the title and preview start, clear of the widest tag
+constexpr int16_t CARRY_TAG_COLUMN = 112; // Where the title and preview start, unless a wider tag pushes them
 constexpr int16_t CARRY_TITLE_W = 250;
 constexpr int16_t CARRY_PREVIEW_W = 262;
 
@@ -262,10 +262,16 @@ void InkHUD::T5MessagesApplet::drawRow(int16_t top, uint16_t w, const Convo &c, 
     }
 
     setFont(fontMedium);
-    printBold(MARGIN, top + 8, t5ConvoTag(c));
+    const std::string tag = t5ConvoTag(c);
+    printBold(MARGIN, top + 8, tag);
+    // The column moves right past a tag wider than it was sized for; the title and preview give up as much
+    const int16_t column = std::max<int16_t>(CARRY_TAG_COLUMN, MARGIN + getTextWidth(tag) + 1 + 12); // 1 px bold
+    const int16_t shift = column - CARRY_TAG_COLUMN;
+    const uint16_t badgeW = badgeWidth(c, false);
     setFont(fontSmall);
-    printAt(CARRY_TAG_COLUMN, top + 20, t5Elide(*this, t5ConvoTitle(c), CARRY_TITLE_W));
-    printAt(CARRY_TAG_COLUMN, top + 52, t5Elide(*this, t5ConvoPreview(c), CARRY_PREVIEW_W));
+    const int16_t previewW = std::min<int16_t>(CARRY_PREVIEW_W - shift, right - 40 - (badgeW ? badgeW + 12 : 0) - column);
+    printAt(column, top + 20, t5Elide(*this, t5ConvoTitle(c), CARRY_TITLE_W - shift));
+    printAt(column, top + 52, t5Elide(*this, t5ConvoPreview(c), std::max<int16_t>(0, previewW)));
     printAt(right - 40, top + 14, time, RIGHT);
     drawBadge(right - 40, top + 44, c, false);
     setFont(fontMedium);
