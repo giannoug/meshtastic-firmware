@@ -6,11 +6,28 @@
 #ifdef T5_SCREENS_HOST
 #include "configuration.h"
 
+#include "BluetoothStatus.h"
 #include "DrawLog.h"
+#include "Fixtures.h"
 #include "MeshService.h"
 #include "NodeDB.h"
+#include "PowerStatus.h"
 #include "ReliableRouter.h"
 #include "ScreenCapture.h"
+#include "T5Applet.h"
+#include "T5AppsApplet.h"
+#include "T5ComposeTask.h"
+#include "T5ConversationApplet.h"
+#include "T5MapApplet.h"
+#include "T5MenuApplet.h"
+#include "T5MenuTask.h"
+#include "T5MessageModel.h"
+#include "T5MessagesApplet.h"
+#include "T5NodeDetailApplet.h"
+#include "T5NodesApplet.h"
+#include "T5SystemLayer.h"
+#include "T5TracePickTask.h"
+#include "airtime.h"
 #include "graphics/niche/InkHUD/InkHUD.h"
 #include "graphics/niche/InkHUD/SystemApplet.h"
 #include "modules/Modules.h"
@@ -44,6 +61,20 @@ static void dismissBootScreens()
         logo->sendToBackground();
 }
 
+// The new-message banner stays up until dismissed; tap DISMISS, as a user would
+static void dismissBanner()
+{
+    InkHUD::T5SystemLayer *layer = InkHUD::T5SystemLayer::get();
+    for (int i = 0; layer && layer->coversContent() && i < 4; i++) {
+        // Its taps arm only after the frame that drew it, plus 300 ms with no finger down
+        renderNow();
+        layer->runOnce();
+        testDelay(350);
+        const InkHUD::T5SystemLayer::Geometry &g = layer->geometry();
+        InkHUD::InkHUD::getInstance()->touchTap(g.dismissLeft + g.dismissW / 2, g.actionTop + g.actionH / 2);
+    }
+}
+
 // Render the current state and save <name>-<carry|console>.pbm plus its draw log
 static void snap(const std::string &name)
 {
@@ -67,16 +98,265 @@ static bool logHasText(const char *needle)
 void setUp() {}
 void tearDown() {}
 
+static const char *dataset = "canonical";
+
+static void show(const char *applet)
+{
+    int8_t i = InkHUD::T5Applet::indexOf(applet);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT8(0, i);
+    InkHUD::InkHUD::getInstance()->showApplet(i, Drivers::EInk::UpdateTypes::FULL, true);
+}
+
+// One state in both modes, named <state>-<dataset>-<mode>
+static void both(const char *state, void (*enter)(), bool keepBanner = false)
+{
+    for (T5Mode mode : {T5Mode::CARRY, T5Mode::CONSOLE}) {
+        t5SetMode(mode);
+        enter();
+        if (!keepBanner)
+            dismissBanner();
+        snap(std::string(state) + "-" + dataset);
+    }
+}
+
 static void test_home_renders_in_both_modes()
 {
     for (T5Mode mode : {T5Mode::CARRY, T5Mode::CONSOLE}) {
         t5SetMode(mode);
+        show("Home");
         uint32_t before = captureFrameCount();
-        snap("home");
+        snap("smoke-home");
         TEST_ASSERT_GREATER_THAN_UINT32(before, captureFrameCount());
         TEST_ASSERT_GREATER_THAN_UINT32(1000, captureBlackPixels());
-        TEST_ASSERT_TRUE(logHasText("HOME") || logHasText("Home"));
+        TEST_ASSERT_TRUE(logHasText("HOME"));
     }
+}
+
+using Convo = InkHUD::T5MessageModel::Convo;
+static constexpr NodeNum KB7X = 0x7c19ab40, UNKNOWN_1C22 = 0x3fa91c22, SAMK = 0x77aa1001, WX01 = 0x9a01c0de;
+static constexpr NodeNum MESSY_LONG = 0x10000001, MESSY_GREEK = 0x10000002;
+
+// Close whatever task layer the previous state left open, one layer at a time like the Home key
+static bool tapLabel(const char *label);
+static void resetUi()
+{
+    if (InkHUD::T5TracePickTask::isOpen())
+        InkHUD::T5TracePickTask::close();
+    for (int i = 0; i < 6 && (InkHUD::T5ComposeTask::taskOpen() || InkHUD::T5MenuTask::isOpen()); i++) {
+        if (!tapLabel("CANCEL"))
+            InkHUD::InkHUD::getInstance()->exitShort();
+    }
+    dismissBanner();
+}
+
+// Tap the centre of the first drawn text run equal to (or else containing) label, as a finger would
+static bool tapLabel(const char *label)
+{
+    dismissBootScreens();
+    drawLogStart();
+    renderNow();
+    drawLogStop();
+    const DrawRec *hit = nullptr;
+    for (const DrawRec &r : drawLog()) {
+        if (r.kind != DrawRec::TEXT)
+            continue;
+        if (r.text == label) {
+            hit = &r;
+            break;
+        }
+        if (!hit && r.text.find(label) != std::string::npos)
+            hit = &r;
+    }
+    if (!hit)
+        return false;
+    InkHUD::InkHUD::getInstance()->touchTap(hit->x + hit->w / 2, hit->y + hit->h / 2);
+    return true;
+}
+
+static void menuPage(const char *section)
+{
+    resetUi();
+    InkHUD::T5MenuApplet::open();
+    tapLabel(section);
+}
+
+static void appsTool(const char *tool)
+{
+    resetUi();
+    show("Apps");
+    tapLabel(tool);
+}
+
+static void renderCoreScreens()
+{
+    both("banner-home", [] { show("Home"); }, true);
+    both("home", [] { show("Home"); });
+    both("nodes", [] { show("Nodes"); });
+    both("nodes-p2", [] {
+        show("Nodes");
+        InkHUD::T5NodesApplet::pageDown();
+    });
+    both("nodedetail", [] { InkHUD::T5NodeDetailApplet::open(KB7X); });
+    both("nodedetail-unknown", [] { InkHUD::T5NodeDetailApplet::open(UNKNOWN_1C22); });
+    both("nodedetail-nopos", [] { InkHUD::T5NodeDetailApplet::open(SAMK); });
+    if (std::string(dataset) == "messy") {
+        both("nodedetail-long", [] { InkHUD::T5NodeDetailApplet::open(MESSY_LONG); });
+        both("nodedetail-greek", [] { InkHUD::T5NodeDetailApplet::open(MESSY_GREEK); });
+        both("convo-dm-long", [] { InkHUD::T5ConversationApplet::open(Convo::forPeer(MESSY_LONG)); });
+    }
+
+    both("messages", [] { InkHUD::T5MessagesApplet::open(); });
+    both("messages-dm", [] { InkHUD::T5MessagesApplet::open(Convo::forPeer(KB7X)); });
+    both("convo-dm", [] { InkHUD::T5ConversationApplet::open(Convo::forPeer(KB7X)); });
+    both("convo-ch0", [] { InkHUD::T5ConversationApplet::open(Convo::forChannel(0)); });
+    both("convo-ch1", [] { InkHUD::T5ConversationApplet::open(Convo::forChannel(1)); });
+    both("compose-reply", [] {
+        resetUi();
+        InkHUD::T5ComposeTask::openReply(Convo::forPeer(KB7X));
+    });
+    both("compose-picker", [] {
+        resetUi();
+        InkHUD::T5ComposeTask::openPicker();
+    });
+    both("compose-fornode", [] {
+        resetUi();
+        InkHUD::T5ComposeTask::openForNode(WX01);
+    });
+    both(
+        "compose-banner",
+        [] {
+            resetUi();
+            InkHUD::T5ComposeTask::openReply(Convo::forChannel(0));
+            fixtureText(SAMK, NODENUM_BROADCAST, 1, 0, "Arriving while you type: the system layer must stay out of the way");
+        },
+        true);
+    resetUi();
+
+    both("map", [] { show("Map"); });
+    both("map-focus", [] { InkHUD::T5MapApplet::focusNode(KB7X); });
+
+    both("apps", [] {
+        resetUi();
+        show("Apps");
+    });
+    both("apps-trace", [] { appsTool("TRACE ROUTE"); });
+    both("apps-trace-pick", [] {
+        appsTool("TRACE ROUTE");
+        InkHUD::T5TracePickTask::open();
+    });
+    both("apps-rf", [] { appsTool("RF STATUS"); });
+    both("apps-sensors", [] { appsTool("SENSORS"); });
+    resetUi();
+
+    both("menu", [] {
+        resetUi();
+        InkHUD::T5MenuApplet::open();
+    });
+    for (const char *section : {"RADIO", "CHANNELS", "POSITION", "CONNECTIVITY", "DISPLAY", "POWER", "DEVICE", "ABOUT"}) {
+        static const char *current;
+        current = section;
+        both((std::string("menu-") + section).c_str(), [] { menuPage(current); });
+    }
+    both("menu-region-picker", [] {
+        menuPage("RADIO");
+        InkHUD::T5MenuTask::openPicker(InkHUD::T5Act::PICK_REGION, 0);
+    });
+    both("menu-region-confirm", [] {
+        menuPage("RADIO");
+        InkHUD::T5MenuTask::openPicker(InkHUD::T5Act::PICK_REGION, 0);
+        tapLabel("EU 868");
+    });
+    resetUi();
+
+    // System surfaces over Home
+    both(
+        "lock-asleep",
+        [] {
+            resetUi();
+            show("Home");
+            T5UiGate::enterTimeout();
+            InkHUD::T5SystemLayer::get()->onTimeoutGateSet();
+        },
+        true);
+    T5UiGate::userWake();
+    InkHUD::T5SystemLayer::get()->onTimeoutGateClear();
+    both(
+        "touch-off",
+        [] {
+            show("Nodes");
+            setTouchInputEnabled(false, false);
+            InkHUD::T5SystemLayer::get()->onTouchPreferenceChanged();
+        },
+        true);
+    setTouchInputEnabled(true, false);
+    InkHUD::T5SystemLayer::get()->onTouchPreferenceChanged();
+    both(
+        "pairing-card",
+        [] {
+            show("Home");
+            meshtastic::BluetoothStatus pairing(std::string("483920"));
+            bluetoothStatus->updateStatus(&pairing);
+        },
+        true);
+    {
+        meshtastic::BluetoothStatus linked(meshtastic::BluetoothStatus::ConnectionState::CONNECTED);
+        bluetoothStatus->updateStatus(&linked);
+    }
+    both(
+        "battery-low",
+        [] {
+            resetUi();
+            show("Apps");
+            for (int i = 0; i < 3; i++) {
+                meshtastic::PowerStatus low(meshtastic::OptTrue, meshtastic::OptFalse, meshtastic::OptFalse, 3550, 9);
+                powerStatus->updateStatus(&low);
+                InkHUD::T5SystemLayer::get()->runOnce();
+            }
+        },
+        true);
+    both(
+        "battery-critical",
+        [] {
+            for (int i = 0; i < 3; i++) {
+                meshtastic::PowerStatus crit(meshtastic::OptTrue, meshtastic::OptFalse, meshtastic::OptFalse, 3350, 2);
+                powerStatus->updateStatus(&crit);
+                InkHUD::T5SystemLayer::get()->runOnce();
+            }
+        },
+        true);
+    {
+        meshtastic::PowerStatus usb(meshtastic::OptTrue, meshtastic::OptTrue, meshtastic::OptTrue, 4190, 100);
+        powerStatus->updateStatus(&usb);
+        InkHUD::T5SystemLayer::get()->runOnce();
+    }
+    resetUi();
+}
+
+// Terminal images ignore all input from then on, so they go last
+static void test_terminal_screens()
+{
+    dataset = "canonical";
+    both(
+        "terminal-restarting", [] { InkHUD::T5SystemLayer::get()->showTerminal(InkHUD::T5SystemLayer::Terminal::RESTARTING); },
+        true);
+    both("terminal-off", [] { InkHUD::T5SystemLayer::get()->showTerminal(InkHUD::T5SystemLayer::Terminal::SWITCHED_OFF); }, true);
+    both(
+        "terminal-empty", [] { InkHUD::T5SystemLayer::get()->showTerminal(InkHUD::T5SystemLayer::Terminal::BATTERY_EMPTY); },
+        true);
+}
+
+static void test_canonical_screens()
+{
+    dataset = "canonical";
+    seedCanonical();
+    renderCoreScreens();
+}
+
+static void test_messy_screens()
+{
+    dataset = "messy";
+    seedMessy();
+    renderCoreScreens();
 }
 
 void setup()
@@ -85,10 +365,14 @@ void setup()
     nodeDB = new NodeDB();
     service = new MeshService();
     router = new ReliableRouter();
+    airTime = new AirTime();
     setupModules();
     setupNicheGraphics();
     UNITY_BEGIN();
     RUN_TEST(test_home_renders_in_both_modes);
+    RUN_TEST(test_canonical_screens);
+    RUN_TEST(test_messy_screens);
+    RUN_TEST(test_terminal_screens);
     exit(UNITY_END());
 }
 
