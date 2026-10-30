@@ -576,9 +576,11 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
             setFont(fontSmall);
             const int16_t tagW = row.tag ? getTextWidth(row.tag) + 16 : 0;
             setFont(fontMedium);
-            // The label keeps its width; a value too long for what is left is elided (2 px: faux bold)
-            const int16_t room = valueRight - left - (getTextWidth(row.label) + 2 + 12) - tagW;
-            const std::string value = t5Elide(*this, row.value, std::max<int16_t>(0, room - 2));
+            // Short of room, the value keeps up to 60 % (it is the setting), the label elides into the rest.
+            // 2 px on each: faux bold
+            const int16_t room = valueRight - left - tagW - 12;
+            const int16_t forValue = std::max<int16_t>(room - getTextWidth(row.label) - 2, room * 3 / 5);
+            const std::string value = t5Elide(*this, row.value, std::max<int16_t>(0, forValue - 2));
             printBold(valueRight, labelTop, value, RIGHT);
             valueRight -= getTextWidth(value) + 12;
         }
@@ -591,7 +593,7 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
 
         setFont(fontMedium);
         setCrop(left, top, std::max<int16_t>(0, valueRight - left), h);
-        printBold(left, labelTop, row.label);
+        printBold(left, labelTop, t5Elide(*this, row.label, std::max<int16_t>(0, valueRight - left - 2)));
         resetCrop();
 
         setFont(fontSmall);
