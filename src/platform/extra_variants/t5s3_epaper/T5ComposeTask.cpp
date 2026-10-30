@@ -449,14 +449,14 @@ void InkHUD::T5ComposeTask::drawKeyboard()
         if (cell.boundaryLeft)
             fillRect(cell.left, cell.top, 1, cell.bottom - cell.top - 1, BLACK);
         setFont(cell.small ? Applet::fontSmall : Applet::fontMedium);
-        if (cell.sub.empty()) {
-            printAt((cell.left + cell.right) / 2, (cell.top + cell.bottom) / 2, cell.label, CENTER, MIDDLE);
+        if (cell.inverted) {
+            fillRect(cell.left + 1, cell.top + 1, cell.right - cell.left - 1, cell.bottom - cell.top - 2, BLACK);
+            setTextColor(WHITE);
+            printBold((cell.left + cell.right) / 2, (cell.top + cell.bottom) / 2 - getFont().lineHeight() / 2, cell.label,
+                      CENTER);
+            setTextColor(BLACK);
         } else {
-            // SHIFT is the one key that says what it will do, which is its only
-            // visual difference
-            const int16_t mid = (cell.top + cell.bottom) / 2;
-            printBold((cell.left + cell.right) / 2, mid - fontSmall.lineHeight(), cell.label, CENTER);
-            printAt((cell.left + cell.right) / 2, mid + 2, cell.sub, CENTER, TOP);
+            printAt((cell.left + cell.right) / 2, (cell.top + cell.bottom) / 2, cell.label, CENTER, MIDDLE);
         }
     }
 

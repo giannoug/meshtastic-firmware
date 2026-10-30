@@ -42,8 +42,9 @@ class T5Keyboard
     // used only by SHIFT, which states what it will do.
     struct Cell {
         int16_t left = 0, right = 0, top = 0, bottom = 0;
-        std::string label, sub;
+        std::string label;
         bool small = false;
+        bool inverted = false;     // SHIFT once and CAPS: the key's state is its only visual difference
         bool boundaryLeft = false; // Draw the 1 px rule on this key's left edge
     };
 

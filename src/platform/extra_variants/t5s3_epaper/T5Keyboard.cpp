@@ -195,14 +195,14 @@ std::vector<InkHUD::T5Keyboard::Cell> InkHUD::T5Keyboard::cells(bool console, La
     std::vector<Cell> out;
 
     auto add = [&out](int16_t left, int16_t right, int16_t top, int16_t bot, const std::string &label, bool small, bool boundary,
-                      const std::string &sub = "") {
+                      bool inverted = false) {
         Cell c;
         c.left = left;
         c.right = right;
         c.top = top;
         c.bottom = bot;
         c.label = label;
-        c.sub = sub;
+        c.inverted = inverted;
         c.small = small;
         c.boundaryLeft = boundary;
         out.push_back(c);
@@ -222,10 +222,9 @@ std::vector<InkHUD::T5Keyboard::Cell> InkHUD::T5Keyboard::cells(bool console, La
     if (layer == Layer::SYMBOLS)
         add(0, shiftRight, rowY[2], rowY[3], std::string(1, DEGREE), false, false);
     else
-        add(0, shiftRight, rowY[2], rowY[3], shift == Shift::CAPS ? "CAPS" : "SHIFT", true, false,
-            shift == Shift::CAPS   ? "LOCKED"
-            : shift == Shift::ONCE ? "NEXT LETTER"
-                                   : "OFF");
+        // Frozen states (Messaging Final, keyboard): SHIFT outlined when off, inverted for the next letter,
+        // CAPS inverted while locked
+        add(0, shiftRight, rowY[2], rowY[3], shift == Shift::CAPS ? "CAPS" : "SHIFT", true, false, shift != Shift::OFF);
 
     for (uint8_t i = 0; i < 7; i++)
         add(console ? consoleR3(i) : CARRY_R3[i], console ? consoleR3(i + 1) : CARRY_R3[i + 1], rowY[2], rowY[3],

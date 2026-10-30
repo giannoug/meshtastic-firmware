@@ -509,12 +509,13 @@ void InkHUD::T5MenuTask::drawKeyboard()
             drawLine(c.left, c.top, c.left, c.bottom, BLACK);
         setFont(c.small ? fontSmall : fontMedium);
         const int16_t cx = (c.left + c.right) / 2, cy = (c.top + c.bottom) / 2;
-        if (c.sub.empty()) {
+        if (c.inverted) {
+            fillRect(c.left + 1, c.top + 1, c.right - c.left - 1, c.bottom - c.top - 2, BLACK);
+            setTextColor(WHITE);
             printAt(cx, cy, c.label, CENTER, MIDDLE);
+            setTextColor(BLACK);
         } else {
-            printAt(cx, cy - fontSmall.lineHeight() / 2, c.label, CENTER, MIDDLE);
-            setFont(fontSmall);
-            printAt(cx, cy + fontSmall.lineHeight() / 2 + 2, c.sub, CENTER, MIDDLE);
+            printAt(cx, cy, c.label, CENTER, MIDDLE);
         }
     }
     const int16_t *tops = T5Keyboard::rowTops(console);
