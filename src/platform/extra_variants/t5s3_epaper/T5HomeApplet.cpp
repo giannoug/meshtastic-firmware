@@ -198,8 +198,12 @@ InkHUD::T5HomeApplet::Status InkHUD::T5HomeApplet::readStatus()
     s.nodeId = hexifyNodeNum(ourNum);
     s.clock = getTimeString(); // Empty until the RTC is valid
 
-    if (myRegion)
+    // The protocol name with underscores as spaces; unset reads NOT SET (Panel Fit D16)
+    s.region = "NOT SET";
+    if (myRegion && config.lora.region != meshtastic_Config_LoRaConfig_RegionCode_UNSET) {
         s.region = myRegion->name;
+        std::replace(s.region.begin(), s.region.end(), '_', ' ');
+    }
     s.preset = DisplayFormatters::getModemPresetDisplayName(config.lora.modem_preset, false, config.lora.use_preset);
 
     // No fix type is available (TinyGPS custom fields are compiled out), so only lock and satellites are shown
@@ -423,9 +427,17 @@ void InkHUD::T5HomeApplet::renderCarry(const Status &s)
     for (int16_t x = 0; x < width(); x += 2)
         drawPixel(x, 75, BLACK);
 
-    // Status band
+    // Status band. Wider than the screen, the GPS chip drops its satellite count first (Panel Fit D16)
+    std::string gps = s.gps;
+    {
+        int16_t rowW = 0;
+        for (const std::string &chip : {"LORA " + s.region, gps, s.bt})
+            rowW += (rowW ? 25 : 0) + getTextWidth(chip) + 1; // 12 + rule + 12 between chips, 1 px bold
+        if (rowW > width() - 2 * MARGIN)
+            gps = gps.substr(0, gps.find(" \xB7 "));
+    }
     int16_t x = MARGIN;
-    for (const std::string &chip : {"LORA " + s.region, s.gps, s.bt}) {
+    for (const std::string &chip : {"LORA " + s.region, gps, s.bt}) {
         if (x > MARGIN) {
             drawLine(x, 86, x, 112, BLACK);
             x += 12;

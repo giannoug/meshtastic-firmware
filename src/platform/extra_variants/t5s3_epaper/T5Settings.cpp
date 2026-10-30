@@ -704,7 +704,7 @@ std::string InkHUD::t5PageContext(T5Page page, uint8_t channelIndex)
     switch (page) {
     case T5Page::ROOT:
         return T5Applet::join(T5Applet::join(t5Parse(owner.short_name), t5NodeId(nodeDB->getNodeNum())),
-                              regionSet() ? regionName(config.lora.region) : "RADIO SILENT");
+                              regionName(config.lora.region)); // NOT SET when unset (Panel Fit D16)
     case T5Page::RADIO:
         return "CHANGES CAN CUT YOU OFF THE MESH";
     case T5Page::CHANNELS:
