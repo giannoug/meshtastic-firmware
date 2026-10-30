@@ -1,10 +1,10 @@
 // Renders the T5 InkHUD screens on the host and saves each frame, for checking against the design mockups.
 // Frames go to $T5_SHOT_DIR (default ./t5shots).
 #include "TestUtil.h"
+#include "configuration.h" // Arduino's extern "C" setup() / loop(), which both branches define
 #include <unity.h>
 
 #ifdef T5_SCREENS_HOST
-#include "configuration.h"
 
 #include "BluetoothStatus.h"
 #include "DrawLog.h"
@@ -423,10 +423,20 @@ void loop() {}
 void setUp() {}
 void tearDown() {}
 
+// Elsewhere the suite has nothing to render: it only confirms it is not silently skipping a real build
+static void test_screens_render_only_in_their_own_env()
+{
+#ifdef MESHTASTIC_INCLUDE_INKHUD
+    TEST_FAIL_MESSAGE("InkHUD is built here, so T5_SCREENS_HOST should be too");
+#endif
+    TEST_PASS();
+}
+
 void setup()
 {
     initializeTestEnvironment();
     UNITY_BEGIN();
+    RUN_TEST(test_screens_render_only_in_their_own_env);
     exit(UNITY_END());
 }
 
