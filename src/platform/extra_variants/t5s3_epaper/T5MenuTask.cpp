@@ -297,7 +297,20 @@ void InkHUD::T5MenuTask::drawOption(int16_t left, int16_t top, uint16_t w, int16
     const int16_t textLeft = left + T5_MARGIN + RING + 14;
     const int16_t textRight = right - T5_MARGIN;
 
-    if (o.detail.empty()) {
+    if (o.detailRight) {
+        // Name and its range share a line, the range right-aligned on the name's baseline (Menu C3, K5)
+        const int16_t labelTop = centerY - 16, baseline = labelTop + fontMedium.heightAboveCursor();
+        setFont(fontSmall);
+        const int16_t detailW = getTextWidth(o.detail);
+        printAt(textRight, baseline - 19, o.detail, RIGHT);
+        setFont(fontMedium);
+        setCrop(textLeft, top, std::max<int16_t>(0, textRight - detailW - 12 - textLeft), h);
+        if (o.selected)
+            printBold(textLeft, labelTop, o.label);
+        else
+            printAt(textLeft, labelTop, o.label);
+        resetCrop();
+    } else if (o.detail.empty()) {
         setFont(fontMedium);
         setCrop(textLeft, top, std::max<int16_t>(0, textRight - textLeft), h);
         if (o.selected)
@@ -338,7 +351,8 @@ void InkHUD::T5MenuTask::drawPicker(const Metrics &m)
     optionLefts.clear();
     optionWidths.clear();
 
-    drawHeader(t5PickTitle(pick), t5PickContext(pick), m);
+    // A Carry picker is a page below its setting: "‹ REGION", and the title is Back (Panel Fit D12, Menu C3)
+    drawHeader(console ? t5PickTitle(pick) : std::string(T5Applet::BACK) + " " + t5PickTitle(pick), t5PickContext(pick), m);
 
     // Rebuilt on each render, so a value changed from the phone while the picker is open cannot go
     // unseen (Menu Settings 23)
@@ -396,36 +410,51 @@ void InkHUD::T5MenuTask::drawConfirm(const Metrics &m)
 
     int16_t y = m.bodyTop + 12;
     const int16_t left = T5_MARGIN, right = width() - T5_MARGIN;
+    const bool console = t5IsConsole(*this);
 
-    // NOW -> NEW, only when a value actually changes
+    // NOW › NEW, only when a value actually changes. Labels, names and ranges on fixed baselines: Carry 132 /
+    // 168 / 196, Console 96 / 132 / 160; a range is never joined to its name (Panel Fit D17)
     if (!spec.from.empty() || !spec.to.empty()) {
+        const int16_t labelBase = console ? 96 : 132, nameBase = console ? 132 : 168, rangeBase = console ? 160 : 196;
         setFont(fontSmall);
-        printAt(left, y, "NOW");
-        printAt(right, y, "NEW", RIGHT);
-        y += fontSmall.lineHeight() + 4;
+        printAt(left, labelBase - 19, "NOW"); // Small caps end 19 px below the print top
+        printAt(right, labelBase - 19, "NEW", RIGHT);
         setFont(fontMedium);
-        printBold(left, y, spec.from);
-        printBold(right, y, spec.to, RIGHT);
-        printAt(width() / 2, y + fontMedium.lineHeight() / 2, T5Applet::FWD, CENTER, MIDDLE);
-        y += fontMedium.lineHeight() + 16;
+        printBold(left, nameBase - fontMedium.heightAboveCursor(), spec.from);
+        printBold(right, nameBase - fontMedium.heightAboveCursor(), spec.to, RIGHT);
+        printAt(width() / 2, nameBase - fontMedium.heightAboveCursor(), T5Applet::FWD, CENTER);
+        setFont(fontSmall);
+        if (!spec.fromDetail.empty())
+            printAt(left, rangeBase - 19, spec.fromDetail);
+        if (!spec.toDetail.empty())
+            printAt(right, rangeBase - 19, spec.toDetail, RIGHT);
+        y = console ? 177 : 212; // Console: under the rule at 176; Carry: the WHAT HAPPENS band at 212
+        if (console)
+            drawLine(0, 176, width() - 1, 176, BLACK);
     }
 
+    // Section bands 32 px, small bold on baseline top+25; bullets hang from a dash at x 16, text at x 46 on a
+    // 26 px pitch (Panel Fit D17)
     auto drawSection = [&](const std::string &label) {
         setFont(fontSmall);
-        printAt(left, y + (m.sectionH - fontSmall.lineHeight()) / 2 - 2, label);
-        drawLine(0, y + m.sectionH - 1, width() - 1, y + m.sectionH - 1, BLACK);
-        y += m.sectionH;
+        printBold(left, y + 25 - 19, label);
+        drawLine(0, y + 31, width() - 1, y + 31, BLACK);
+        y += 32;
     };
 
     auto drawBullets = [&](const std::vector<std::string> &lines) {
         setFont(fontSmall);
+        const int16_t textLeft = left + 30;
         for (const std::string &line : lines) {
-            const std::string body = std::string(T5Applet::DASH) + " " + line;
-            for (const std::string &wrapped : t5WrapLines(*this, body, (uint16_t)(right - left))) {
-                if (y + fontSmall.lineHeight() > m.bodyBottom)
+            bool first = true;
+            for (const std::string &wrapped : t5WrapLines(*this, line, (uint16_t)(right - textLeft))) {
+                if (y + 26 > m.bodyBottom)
                     return;
-                printAt(left, y, wrapped);
-                y += fontSmall.lineHeight() + 2;
+                if (first)
+                    printAt(left, y + 26 - 19, T5Applet::DASH);
+                printAt(textLeft, y + 26 - 19, wrapped);
+                y += 26;
+                first = false;
             }
             y += 8;
         }
@@ -695,6 +724,12 @@ bool InkHUD::T5MenuTask::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
             leave();
             return true;
         }
+        return true;
+    }
+
+    // A Carry picker's title is Back, and leaves as CANCEL does (D12)
+    if (mode == Mode::PICKER && !t5IsConsole(*this) && ty < m.headerH && tx < 200) {
+        leave();
         return true;
     }
 

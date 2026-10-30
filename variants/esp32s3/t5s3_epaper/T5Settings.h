@@ -144,15 +144,17 @@ struct T5Option {
     int32_t value = 0;
     bool selected = false;
     bool selectable = true;
+    bool detailRight = false; // The detail right-aligned on the label's line, not under it (region ranges, D18)
 };
 
 // A confirmation, as the frozen template lays it out: question, optional NOW -> NEW block, two to
 // four consequences, an optional KEPT line, and a verb that names the result (Menu Settings 07)
 struct T5Confirm {
-    std::string title; // "CHANGE REGION?"
-    std::string crumb; // "RADIO > REGION"
-    std::string from;  // NOW, empty when nothing changes value
-    std::string to;    // NEW
+    std::string title;                // "CHANGE REGION?"
+    std::string crumb;                // "RADIO > REGION"
+    std::string from;                 // NOW, empty when nothing changes value
+    std::string to;                   // NEW
+    std::string fromDetail, toDetail; // A third line under each, small regular: the region ranges (D17)
     std::vector<std::string> bullets;
     std::string keptLabel; // "KEPT" section heading, empty when there is none
     std::vector<std::string> kept;

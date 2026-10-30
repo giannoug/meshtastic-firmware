@@ -21,6 +21,7 @@
 #include "mesh/RadioInterface.h"
 #include "mesh/RadioLibInterface.h"
 #include <algorithm>
+#include <cmath>
 
 #if !MESHTASTIC_EXCLUDE_MQTT
 #include "mqtt/MQTT.h"
@@ -313,17 +314,36 @@ std::string regionName(meshtastic_Config_LoRaConfig_RegionCode code)
     return out;
 }
 
+// "low—high MHz", always a range (Panel Fit D18). Each edge is rounded to 0.1 MHz in whole kHz, halves up,
+// and loses a trailing ".0"; if both edges would then read the same, both get two decimals
+std::string bandEdge(float mhz, bool twoDecimals)
+{
+    const uint32_t khz = (uint32_t)lroundf(mhz * 1000.0f);
+    char buf[16];
+    if (twoDecimals) {
+        const uint32_t hundredths = (khz + 5) / 10;
+        snprintf(buf, sizeof(buf), "%u.%02u", (unsigned)(hundredths / 100), (unsigned)(hundredths % 100));
+    } else {
+        const uint32_t tenths = (khz + 50) / 100;
+        if (tenths % 10)
+            snprintf(buf, sizeof(buf), "%u.%u", (unsigned)(tenths / 10), (unsigned)(tenths % 10));
+        else
+            snprintf(buf, sizeof(buf), "%u", (unsigned)(tenths / 10));
+    }
+    return buf;
+}
+
 std::string regionBand(meshtastic_Config_LoRaConfig_RegionCode code)
 {
     const RegionInfo *r = getRegion(code);
-    if (!r || r->freqStart <= 0)
-        return "";
-    char buf[32];
-    if (r->freqEnd - r->freqStart < 0.5f)
-        snprintf(buf, sizeof(buf), "%.0f MHz", r->freqStart);
-    else
-        snprintf(buf, sizeof(buf), "%.0f%s%.0f MHz", r->freqStart, DASH, r->freqEnd);
-    return buf;
+    if (code == meshtastic_Config_LoRaConfig_RegionCode_UNSET || !r || r->freqStart <= 0)
+        return "RADIO SILENT";
+    std::string low = bandEdge(r->freqStart, false), high = bandEdge(r->freqEnd, false);
+    if (low == high) {
+        low = bandEdge(r->freqStart, true);
+        high = bandEdge(r->freqEnd, true);
+    }
+    return low + DASH + high + " MHz";
 }
 
 std::string presetName()
@@ -1158,7 +1178,7 @@ std::string InkHUD::t5PickContext(T5Act which)
 {
     switch (which) {
     case T5Act::PICK_REGION:
-        return "PICK WHERE YOU ARE " + std::string(SEP) + " SETS LEGAL FREQUENCIES";
+        return "WHERE YOU ARE " + std::string(SEP) + " SETS LEGAL BANDS"; // Fits 476 (Menu C3, D18)
     case T5Act::PICK_PRESET:
         return "ONLY PRESETS YOUR REGION ALLOWS";
     case T5Act::PICK_HOP:
@@ -1195,14 +1215,12 @@ std::vector<InkHUD::T5Option> InkHUD::t5PickOptions(T5Act which, uint8_t channel
             T5Option o;
             o.value = code;
             o.selected = config.lora.region == region;
-            if (region == meshtastic_Config_LoRaConfig_RegionCode_UNSET) {
-                o.label = "NOT SET";
-                o.detail = "radio silent";
+            // The range right-aligned on the name's line (Menu C3, K5, Panel Fit D18)
+            o.label = regionName(region);
+            o.detail = regionBand(region);
+            o.detailRight = true;
+            if (region == meshtastic_Config_LoRaConfig_RegionCode_UNSET)
                 o.selectable = o.selected; // Never a way back to UNSET once a region is set
-            } else {
-                o.label = regionName(region);
-                o.detail = regionBand(region);
-            }
             out.push_back(o);
         }
         break;
@@ -1342,11 +1360,13 @@ bool InkHUD::t5NeedsConfirm(T5Act which, int32_t value, uint8_t channelIndex, T5
         out.crumb = std::string("RADIO ") + T5Applet::FWD + " REGION";
         out.from = regionName(config.lora.region);
         out.to = regionName(target);
+        out.fromDetail = regionBand(config.lora.region); // RADIO SILENT when unset (D17)
+        out.toDetail = regionBand(target);
         out.bullets = {"The device restarts in about 5 seconds.", "You will only hear nodes on the same region and preset.",
                        "Transmitting outside your real region can be illegal."};
         // applyLoRaRegion re-enables transmit and the boot clamp rewrites a preset the new region
         // does not offer, so the copy says so rather than leaving it to be discovered
-        out.bullets.push_back("If the preset is not allowed there it is reset, and transmit is turned back on.");
+        out.bullets.push_back("If the preset is not allowed in " + out.to + " it is reset, and transmit is turned back on.");
         out.keptLabel = "KEPT";
         out.kept = {"Channels, names, node list and messages."};
         out.verb = "CHANGE & RESTART";
