@@ -299,8 +299,8 @@ void InkHUD::T5TracePickTask::onRender(bool full)
         rowLefts.push_back(left);
         rowWidths.push_back((uint16_t)colW);
     }
-    if (console)
-        drawLine(colW, top, colW, height() - BUTTON_BAND - 1, BLACK);
+    if (console) // The column rule stops at the pager, whose counter is centred where it would cross
+        drawLine(colW, top, colW, height() - BUTTON_BAND - (paged ? PAGER_H : 0) - 1, BLACK);
 
     if (paged) {
         const int16_t pagerTop = height() - BUTTON_BAND - PAGER_H;
