@@ -330,28 +330,21 @@ void InkHUD::T5AppsApplet::drawHeader(const std::string &title, const std::strin
         return;
     }
 
-    setFont(fontSmall);
-    const int16_t statusLeft = width() - MARGIN - getTextWidth(status);
-    printAt(width() - MARGIN, 20, status, RIGHT);
-
-    setFont(fontLarge);
-    setCrop(MARGIN, 0, std::max<int16_t>(0, statusLeft - 12 - MARGIN), 99);
-    printBold(MARGIN, 14, head);
-    resetCrop();
     if (back) {
-        // Carry has room for the crumb and the tool name on one line. The crumb is measured in its own
-        // large font, which is still set
-        const int16_t nameLeft = MARGIN + getTextWidth(head) + 12;
-        const int16_t nameTop = 14 + fontLarge.heightAboveCursor() - fontMedium.heightAboveCursor();
-        setFont(fontMedium);
-        const int16_t nameW = std::max<int16_t>(0, statusLeft - 12 - nameLeft);
-        setCrop(nameLeft, 0, nameW, 99);
-        printBold(nameLeft, nameTop, t5Elide(*this, title, nameW > 2 ? nameW - 2 : 0)); // 2 px of faux bold
+        carryBackRight = drawSubPageTitle(title, status); // "‹ TOOL", no parent word (Panel Fit D12)
+    } else {
+        setFont(fontSmall);
+        const int16_t statusLeft = width() - MARGIN - getTextWidth(status);
+        printAt(width() - MARGIN, 39 - 19, status, RIGHT);
+        setFont(fontLarge);
+        setCrop(MARGIN, 0, std::max<int16_t>(0, statusLeft - 12 - MARGIN), 99);
+        printBold(MARGIN, 14, head);
         resetCrop();
     }
+    // Line 2 at baseline 80 (Panel Fit D12)
     setFont(fontSmall);
     setCrop(MARGIN, 0, width() - 2 * MARGIN, 99);
-    printAt(MARGIN, 66, t5Elide(*this, context, width() - 2 * MARGIN));
+    printAt(MARGIN, 80 - 19, t5Elide(*this, context, width() - 2 * MARGIN));
     resetCrop();
     drawLine(0, 99, width() - 1, 99, BLACK);
 }
@@ -818,7 +811,7 @@ bool InkHUD::T5AppsApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
 
     // The header band is Back from a tool; the launcher has no Back, so its band does nothing
     const int16_t backBottom = isConsole() ? CONSOLE_BAND : 99;
-    const int16_t backRight = isConsole() ? 260 : 200;
+    const int16_t backRight = isConsole() ? 260 : carryBackRight;
     if (mode != Mode::LAUNCHER && ty < backBottom && tx < backRight) {
         backToLauncher();
         return true;

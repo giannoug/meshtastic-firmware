@@ -198,6 +198,7 @@ class T5AppsApplet : public T5Applet, public MeshModule, public concurrency::OST
     int16_t bodyBottom(); // Above the nav, or above the pager when one is shown
     void drawPager(uint8_t page, uint8_t pages);
     bool pagerShown = false;
+    int16_t carryBackRight = 200; // The Carry Back target ends here: the drawn title's right edge + 12 (D12)
     int16_t pagerTop = 0;
 
     // Apps 12: a value redraw is worth at most one frame a minute, and only when its text actually

@@ -676,7 +676,7 @@ std::string InkHUD::t5PageContext(T5Page page, uint8_t channelIndex)
     case T5Page::RADIO:
         return "CHANGES CAN CUT YOU OFF THE MESH";
     case T5Page::CHANNELS:
-        return std::string("VIEW AND SHARING ") + SEP + " KEYS STAY IN THE APP";
+        return "KEYS STAY IN THE PHONE APP";
     case T5Page::CHANNEL:
         return "CHANNEL " + to_string(channelIndex) + " " + SEP + " " +
                (channelIndex == channels.getPrimaryIndex() ? "PRIMARY" : "SECONDARY");
@@ -798,6 +798,7 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
             T5Row r = nav(to_string(i) + " " + SEP + " " + channelTitle(i),
                           i == channels.getPrimaryIndex() ? "PRIMARY" : "SECONDARY", T5Act::OPEN_CHANNEL);
             r.arg = i;
+            r.smallValue = true;
             rows.push_back(r);
         }
         if (count < 8) {
@@ -818,7 +819,7 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
         T5Row key;
         key.kind = T5RowKind::NAV;
         key.label = "KEY";
-        block(key, channelKeyClass(ch), "Manage keys in the Meshtastic app. The key is never shown.");
+        block(key, channelKeyClass(ch), "Set in the Meshtastic app. Never shown here.");
         rows.push_back(key);
 
         rows.push_back(section("SHARING"));
@@ -884,8 +885,8 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
         rows.push_back(info("PHONE", !config.bluetooth.enabled ? "BLUETOOTH OFF"
                                      : phoneConnected()        ? "CONNECTED"
                                                                : "NOT CONNECTED"));
-        rows.push_back(choice("PAIRING PIN", {"RANDOM", "FIXED"}, config.bluetooth.fixed_pin ? 1 : 0, T5Act::SET_PIN_MODE,
-                              "A fixed PIN is chosen in the app."));
+        rows.push_back(nav("PAIRING PIN", config.bluetooth.fixed_pin ? "FIXED" : "RANDOM", T5Act::PICK_PIN_MODE, nullptr,
+                           "A fixed PIN is chosen in the app."));
 
         rows.push_back(section("WI-FI"));
         T5Row wifi = state("WI-FI", config.network.wifi_enabled, T5Act::SET_WIFI, "RESTARTS");
@@ -1109,6 +1110,8 @@ std::string InkHUD::t5PickTitle(T5Act which)
         return "PRECISION";
     case T5Act::PICK_TZ:
         return "TIME ZONE";
+    case T5Act::PICK_PIN_MODE:
+        return "PAIRING PIN";
     default:
         return "";
     }
@@ -1133,6 +1136,8 @@ std::string InkHUD::t5PickContext(T5Act which)
         return "HOW COARSE A POSITION THIS CHANNEL SHARES";
     case T5Act::PICK_TZ:
         return "CLOCKS AND MESSAGE TIMES";
+    case T5Act::PICK_PIN_MODE:
+        return "A FIXED PIN IS CHOSEN IN THE APP";
     default:
         return "";
     }
@@ -1245,6 +1250,17 @@ std::vector<InkHUD::T5Option> InkHUD::t5PickOptions(T5Act which, uint8_t channel
             o.label = PRECISION_OPTIONS[i].label;
             o.value = (int32_t)PRECISION_OPTIONS[i].bits;
             o.selected = current == PRECISION_OPTIONS[i].bits;
+            out.push_back(o);
+        }
+        break;
+    }
+
+    case T5Act::PICK_PIN_MODE: {
+        for (uint8_t i = 0; i < 2; i++) {
+            T5Option o;
+            o.label = i ? "FIXED" : "RANDOM";
+            o.value = i;
+            o.selected = config.bluetooth.fixed_pin == (i != 0);
             out.push_back(o);
         }
         break;
@@ -1587,6 +1603,7 @@ InkHUD::T5ApplyResult InkHUD::t5Apply(T5Act which, int32_t value, uint8_t channe
         setenv("TZ", config.device.tzdef, 1);
         return saveAndReload() ? T5ApplyResult::DONE : T5ApplyResult::FAILED;
 
+    case T5Act::PICK_PIN_MODE:
     case T5Act::SET_PIN_MODE:
         if (config.bluetooth.fixed_pin == (value != 0))
             return T5ApplyResult::DONE;

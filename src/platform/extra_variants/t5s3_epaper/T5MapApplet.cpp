@@ -855,6 +855,16 @@ void InkHUD::T5MapApplet::drawHeaderBand(const Layout &l)
 {
     const int16_t rule = l.console ? CONSOLE_BAND : 99;
 
+    if (backNode && !l.console) {
+        // Carry deep link: one-part "‹ MAP", the GPS state where the status sits, the counts on line 2.
+        // Back still returns to the node (Panel Fit D12)
+        carryBackRight = drawSubPageTitle("MAP", gpsLine());
+        setFont(fontSmall);
+        printAt(MARGIN, 80 - 19, t5Elide(*this, countsLine(), width() - 2 * MARGIN)); // Baseline 80
+        drawLine(0, rule, width() - 1, rule, BLACK);
+        return;
+    }
+
     setFont(fontLarge);
     int16_t lineLeft;
     if (backNode) {
@@ -1608,7 +1618,7 @@ bool InkHUD::T5MapApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
     }
 
     // The header's back chip: the only way back to the node the deep link came from
-    if (backNode && ty < (l.console ? CONSOLE_BAND : 100) && tx < 260) {
+    if (backNode && ty < (l.console ? CONSOLE_BAND : 100) && tx < (l.console ? 260 : carryBackRight)) {
         const NodeNum target = backNode;
         backNode = 0;
         T5NodeDetailApplet::open(target, NODES);

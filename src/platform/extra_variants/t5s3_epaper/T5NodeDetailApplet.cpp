@@ -63,11 +63,12 @@ void InkHUD::T5NodeDetailApplet::onRender(bool full)
     const T5NodesApplet::Row row = static_cast<T5NodesApplet *>(inkhud->userApplets[nodesIndex])->readRow(info);
     const std::string back = std::string(BACK) + row.shortName, id = hexifyNodeNum(node);
 
-    // Header: the whole band is the Back target. Long name and id share the title's baseline
-    setFont(fontLarge);
-    printBold(MARGIN, titleTop, back);
-    const int16_t nameTop = titleTop + fontLarge.heightAboveCursor() - fontMedium.heightAboveCursor();
+    // Header: the whole band is the Back target
     if (console) {
+        // Long name and id share the title's baseline
+        setFont(fontLarge);
+        printBold(MARGIN, titleTop, back);
+        const int16_t nameTop = titleTop + fontLarge.heightAboveCursor() - fontMedium.heightAboveCursor();
         // The id sits before the favourite chip's slot, which stays reserved when the chip isn't drawn
         setFont(fontSmall);
         const int16_t chipLeft = boxedLabel("FAVOURITE", CONSOLE_BAND, nodeInfoLiteIsFavorite(info));
@@ -79,15 +80,10 @@ void InkHUD::T5NodeDetailApplet::onRender(bool full)
         resetCrop();
         drawLine(0, CONSOLE_BAND, width() - 1, CONSOLE_BAND, BLACK);
     } else {
-        // Long name clear of the widest short name, and cut short of the id rather than pushing it off its line
-        const int16_t column = std::max<int16_t>(150, MARGIN + getTextWidth(back) + 2 + 12);
+        // One-part title "‹ KB7X", the id where the status sits, the long name on line 2 (Panel Fit D12)
+        drawSubPageTitle(row.shortName, id);
         setFont(fontSmall);
-        const int16_t idLeft = width() - MARGIN - getTextWidth(id);
-        printAt(width() - MARGIN, 36, id, RIGHT);
-        setFont(fontMedium);
-        setCrop(column, 0, std::max<int16_t>(0, idLeft - 12 - column), 99);
-        printAt(column, nameTop, t5Elide(*this, row.longName, std::max<int16_t>(0, idLeft - 12 - column)));
-        resetCrop();
+        printAt(MARGIN, 80 - 19, t5Elide(*this, row.longName, width() - 2 * MARGIN));
         drawLine(0, 99, width() - 1, 99, BLACK);
     }
 

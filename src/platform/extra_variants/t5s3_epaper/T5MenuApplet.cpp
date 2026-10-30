@@ -266,29 +266,20 @@ void InkHUD::T5MenuApplet::drawHeader(const Metrics &m)
         return;
     }
 
-    printAt(width() - T5_MARGIN, 20, status, RIGHT);
-
-    setFont(fontLarge);
-    const std::string head = backLabel ? std::string(T5Applet::BACK) + " " + backLabel : title;
-    setCrop(T5_MARGIN, 0, std::max<int16_t>(0, statusLeft - 12 - T5_MARGIN), 99);
-    printBold(T5_MARGIN, 14, head);
-    int16_t x = T5_MARGIN + getTextWidth(head) + 12;
-    resetCrop();
-
     if (backLabel) {
-        // Carry has room for the crumb and the page name, medium regular, on one line (Panel Fit D2)
-        setFont(fontMedium);
-        const int16_t nameTop = 14 + fontLarge.heightAboveCursor() - fontMedium.heightAboveCursor();
-        // shortcut: a long room name (CONNECTIVITY) elides beside the status; Panel Fit gives no rule for it yet
-        const int16_t nameW = std::max<int16_t>(0, statusLeft - 12 - x);
-        setCrop(x, 0, nameW, 99);
-        printAt(x, nameTop, t5Elide(*this, title, nameW));
+        backRight = drawSubPageTitle(title, status); // "‹ PAGE", no parent word (Panel Fit D12)
+    } else {
+        printAt(width() - T5_MARGIN, 39 - 19, status, RIGHT);
+        setFont(fontLarge);
+        setCrop(T5_MARGIN, 0, std::max<int16_t>(0, statusLeft - 12 - T5_MARGIN), 99);
+        printBold(T5_MARGIN, 14, title);
         resetCrop();
     }
 
+    // Line 2 at baseline 80 (Panel Fit D12)
     setFont(fontSmall);
     setCrop(T5_MARGIN, 0, std::max<int16_t>(0, width() - 2 * T5_MARGIN), 99);
-    printAt(T5_MARGIN, 66, t5Elide(*this, context, std::max<int16_t>(0, width() - 2 * T5_MARGIN)));
+    printAt(T5_MARGIN, 80 - 19, t5Elide(*this, context, std::max<int16_t>(0, width() - 2 * T5_MARGIN)));
     resetCrop();
     drawLine(0, 99, width() - 1, 99, BLACK);
 }
@@ -593,9 +584,12 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
             // Short of room the label elides first; the value elides only beyond 60 % of the row (Panel Fit D2).
             // The RESTARTS tag is not drawn: the confirmation states the restart
             const int16_t room = valueRight - left - 12;
-            const int16_t forValue = std::max<int16_t>(room - getTextWidth(row.label), (right - left) * 3 / 5);
+            const int16_t labelW = getTextWidth(row.label);
+            if (row.smallValue)
+                setFont(fontSmall);
+            const int16_t forValue = std::max<int16_t>(room - labelW, (right - left) * 3 / 5);
             const std::string value = t5Elide(*this, row.value, std::max<int16_t>(0, forValue - 2));
-            printBold(valueRight, labelTop, value, RIGHT);
+            printBold(valueRight, row.smallValue ? top + 42 - 19 : labelTop, value, RIGHT);
             valueRight -= getTextWidth(value) + 12;
         }
 
@@ -736,7 +730,7 @@ bool InkHUD::T5MenuApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
 
     // Header Back: one level up, and from the root out of the menu
     if (ty < m.headerH) {
-        const int16_t backWidth = t5IsConsole(*this) ? 260 : 200;
+        const int16_t backWidth = t5IsConsole(*this) ? 260 : backRight;
         if (tx < backWidth && hasBack())
             back();
         return true;
@@ -859,6 +853,7 @@ void InkHUD::T5MenuApplet::runRow(const T5Row &row, int16_t choiceCell)
     case T5Act::PICK_BROADCAST:
     case T5Act::PICK_PRECISION:
     case T5Act::PICK_TZ:
+    case T5Act::PICK_PIN_MODE:
         T5MenuTask::openPicker(row.action, channelIndex);
         return;
 

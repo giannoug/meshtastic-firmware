@@ -81,6 +81,7 @@ enum class T5Act : uint8_t {
     PICK_BROADCAST,
     PICK_PRECISION,
     PICK_TZ,
+    PICK_PIN_MODE, // RANDOM or FIXED: a value row with a picker, as the label beside two cells does not fit (D12)
 
     // Keyboard fields
     EDIT_LONG_NAME,
@@ -121,6 +122,7 @@ struct T5Row {
     T5RowKind kind = T5RowKind::INFO;
     std::string label;
     std::string value;
+    bool smallValue = false;   // The value in small bold at baseline top+42: the C6 channel role (Panel Fit D12)
     std::string summary;       // CATEGORY: the live second line
     std::string hint;          // Carry only; Console moves hints into the confirmation
     std::string reason;        // Why this row cannot be used, inside the dotted box

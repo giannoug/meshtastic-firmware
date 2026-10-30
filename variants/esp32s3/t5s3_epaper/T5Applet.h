@@ -74,6 +74,11 @@ class T5Applet : public T5NavDraw<Applet>
     void drawSignal(int16_t left, int16_t bottom, SignalStrength signal);             // Four bars, filled to the rating
     void strikeThrough(int16_t left, int16_t centerY, uint16_t w) { t5StrikeThrough(*this, left, centerY, w); }
 
+    // The one-part Carry sub-page title (Panel Fit D12): "‹ PAGE" medium bold at baseline 46, the status small
+    // at baseline 39 against the right margin. Short of room "· CHG" drops from the status, then the title
+    // elides. Returns the right edge of the Back target: the title's + 12, never under 200
+    int16_t drawSubPageTitle(const std::string &page, std::string status);
+
     // The frozen paging triangles. No Win-1253 glyph exists for either, and a
     // large font for two shapes would be worse than drawing them (V14) - as the
     // mode control already draws its arrows.

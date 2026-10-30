@@ -82,6 +82,24 @@ std::string InkHUD::T5Applet::powerLabel(bool console, bool withVoltage)
     return join("BATT " + percent, volts);
 }
 
+int16_t InkHUD::T5Applet::drawSubPageTitle(const std::string &page, std::string status)
+{
+    const std::string title = std::string(BACK) + " " + page;
+    const int16_t right = width() - MARGIN;
+    setFont(fontMedium);
+    const int16_t titleW = getTextWidth(title) + 1; // 1 px bold
+    setFont(fontSmall);
+    if (MARGIN + titleW + 12 + getTextWidth(status) > right)
+        status = status.substr(0, status.find(" \xB7 ")); // The percentage never gives way
+    const int16_t box = right - 12 - getTextWidth(status) - MARGIN;
+    printAt(right, 39 - 19, status, RIGHT); // Small caps end 19 px below the print top
+
+    setFont(fontMedium);
+    const std::string shown = t5Elide(*this, title, std::max<int16_t>(0, box - 1));
+    printBold(MARGIN, 46 - fontMedium.heightAboveCursor(), shown);
+    return std::max<int16_t>(200, MARGIN + getTextWidth(shown) + 1 + 12);
+}
+
 // Four bars, filled up to the shared getSignalStrength() rating, as NodeListApplet counts them
 void InkHUD::T5Applet::drawSignal(int16_t left, int16_t bottom, SignalStrength signal)
 {

@@ -158,9 +158,10 @@ class T5MapApplet : public T5Applet, public SinglePortModule, public concurrency
     NodeNum anchorNode = 0;
     uint8_t rung = RUNG_DEFAULT;
     bool fit = true;
-    std::vector<NodeNum> order; // PREV / NEXT snapshot: never re-sorted live
-    NodeNum backNode = 0;       // Deep-link back slot; 0 = no chip
-    NodeNum deepTarget = 0;     // The explicit SHOW ON MAP target, exempt from the 24 h rule while selected
+    std::vector<NodeNum> order;   // PREV / NEXT snapshot: never re-sorted live
+    NodeNum backNode = 0;         // Deep-link back slot; 0 = no chip
+    int16_t carryBackRight = 200; // The Carry Back target ends here: the drawn title's right edge + 12 (D12)
+    NodeNum deepTarget = 0;       // The explicit SHOW ON MAP target, exempt from the 24 h rule while selected
     double centreLat = 0, centreLon = 0;
     bool centred = false;     // centreLat / centreLon hold a real point
     bool centreIsOwn = false; // ...and that point is our own position, so the drift rule applies

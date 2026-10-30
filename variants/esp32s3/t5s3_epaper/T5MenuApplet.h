@@ -75,6 +75,7 @@ class T5MenuApplet : public T5Applet, public concurrency::OSThread
     uint8_t pageIndex = 0;        // Which page of a list that does not fit
     uint8_t consoleCategory = 4;  // First open after boot lands on DISPLAY (decision 5)
     T5Act errorRow = T5Act::NONE; // The row whose last write did not reach flash: NOT SAVED
+    int16_t backRight = 200;      // The Carry Back target ends here: the drawn title's right edge + 12 (D12)
     uint32_t liveShownAtMs = 0;   // When the LIVE values were last drawn
     // A fresh entry from the MENU cell. The page it lands on depends on the mode, which is the shape
     // of the tile, so it is resolved on the next render rather than at the tap: a layout rebuild
