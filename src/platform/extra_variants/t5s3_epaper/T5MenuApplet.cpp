@@ -482,8 +482,15 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
         setFont(fontSmall);
         if (!row.available) {
             t5DottedRect(*this, left, boxTop, (uint16_t)(right - left), boxH);
-            printAt(left + 14, boxTop + boxH / 2, row.label, LEFT, MIDDLE);
-            drawReason(right - 14, boxTop + boxH / 2, row.reason);
+            // Label and reason box side by side when they fit; otherwise the reason drops to a second line
+            // inside the dotted box, so neither fixed line is cut or overlapped
+            if (14 + getTextWidth(row.label) + 12 + getTextWidth(row.reason) + 24 + 14 <= right - left) {
+                printAt(left + 14, boxTop + boxH / 2, row.label, LEFT, MIDDLE);
+                drawReason(right - 14, boxTop + boxH / 2, row.reason);
+            } else {
+                printAt(left + 14, boxTop + 28 - 19, row.label); // Baselines 28 / 52 in the 64 px box
+                printAt(left + 14, boxTop + 52 - 19, row.reason);
+            }
             return;
         }
         drawRect(left, boxTop, right - left, boxH, BLACK);

@@ -29,6 +29,34 @@
 
 #ifdef T5_DEVTOOLS
 #include <esp_system.h>
+
+namespace
+{
+// esp_reset_reason() in words, as the frozen page shows it ("POWER ON", Menu C15 / K4)
+const char *resetReasonText(int reason)
+{
+    switch (reason) {
+    case 1:
+        return "POWER ON";
+    case 2:
+        return "RESET PIN";
+    case 3:
+        return "SOFTWARE";
+    case 4:
+        return "PANIC";
+    case 5:
+    case 6:
+    case 7:
+        return "WATCHDOG";
+    case 8:
+        return "DEEP SLEEP";
+    case 9:
+        return "BROWNOUT";
+    default:
+        return "UNKNOWN";
+    }
+}
+} // namespace
 #endif
 
 #if defined(HAS_SDCARD) && !defined(SDCARD_USE_SOFT_SPI)
@@ -1092,7 +1120,7 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
         // Only developer builds have the section and the code behind it: no hidden unlock (decision 1)
         if (!console)
             rows.push_back(section("DEVELOPER"));
-        rows.push_back(nav("DEVELOPER TOOLS", console ? "DEV BUILD" : "", T5Act::OPEN_DEVTOOLS));
+        rows.push_back(nav("DEVELOPER TOOLS", "", T5Act::OPEN_DEVTOOLS)); // A value would cut the fixed label in Console
 #endif
         break;
     }
@@ -1120,7 +1148,7 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
         if (console) {
             rows.push_back(facts({{"FREE HEAP", heap},
                                   {"FREE PSRAM", psram},
-                                  {"LAST RESET", to_string((int)esp_reset_reason())},
+                                  {"LAST RESET", resetReasonText((int)esp_reset_reason())},
                                   {"SD CARD", sdCardText()},
                                   {std::string("CHANNEL ") + SEP + " AIRTIME", use}}));
             rows.push_back(shot);
@@ -1133,7 +1161,7 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
             rows.push_back(section("SYSTEM"));
             rows.push_back(info("FREE HEAP", heap));
             rows.push_back(info("FREE PSRAM", psram));
-            rows.push_back(info("LAST RESET", to_string((int)esp_reset_reason())));
+            rows.push_back(info("LAST RESET", resetReasonText((int)esp_reset_reason())));
 
             rows.push_back(section("RADIO"));
             rows.push_back(info(std::string("CHANNEL USE ") + SEP + " AIRTIME", use));
