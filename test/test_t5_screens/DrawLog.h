@@ -9,6 +9,7 @@ struct DrawRec {
     std::string text;  // TEXT only: bytes as drawn (Win-1253)
     int16_t x = 0, y = 0, w = 0, h = 0;
     uint16_t color = 0;
+    int16_t clipX = 0, clipY = 0, clipW = 0, clipH = 0; // Crop inside the tile, screen coordinates
 };
 
 void drawLogStart();

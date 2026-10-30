@@ -137,15 +137,15 @@ static constexpr NodeNum KB7X = 0x7c19ab40, UNKNOWN_1C22 = 0x3fa91c22, SAMK = 0x
 static constexpr NodeNum MESSY_LONG = 0x10000001, MESSY_GREEK = 0x10000002;
 
 // Close whatever task layer the previous state left open, one layer at a time like the Home key
-static bool tapLabel(const char *label);
 static void resetUi()
 {
     if (InkHUD::T5TracePickTask::isOpen())
         InkHUD::T5TracePickTask::close();
-    for (int i = 0; i < 6 && (InkHUD::T5ComposeTask::taskOpen() || InkHUD::T5MenuTask::isOpen()); i++) {
-        if (!tapLabel("CANCEL"))
-            InkHUD::InkHUD::getInstance()->exitShort();
-    }
+    // The Home key's path: each press cancels one layer
+    for (int i = 0; i < 6 && InkHUD::T5MenuTask::isOpen(); i++)
+        InkHUD::T5MenuTask::get()->onExitShort();
+    for (int i = 0; i < 6 && InkHUD::T5ComposeTask::taskOpen(); i++)
+        InkHUD::T5ComposeTask::get()->onExitShort();
     dismissBanner();
 }
 
@@ -272,8 +272,13 @@ static void renderCoreScreens()
     both(
         "lock-asleep",
         [] {
+            // Asleep freezes the last image, so Home is drawn awake first and the gate set after it
+            T5UiGate::userWake();
+            InkHUD::T5SystemLayer::get()->onTimeoutGateClear();
             resetUi();
             show("Home");
+            dismissBanner();
+            renderNow();
             T5UiGate::enterTimeout();
             InkHUD::T5SystemLayer::get()->onTimeoutGateSet();
         },

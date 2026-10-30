@@ -23,6 +23,47 @@ void __real__ZN3GFX8fillRectEsssst(GFX *self, int16_t x, int16_t y, int16_t w, i
 void __real__ZN3GFX8drawLineEsssst(GFX *self, int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint16_t color);
 }
 
+// Test-only read of Applet's private crop: explicit instantiation is exempt from access checks
+template <typename T> struct CropField {
+    using type = T Applet::*;
+};
+struct CropLeft : CropField<int16_t> {
+    friend type get(CropLeft);
+};
+struct CropTop : CropField<int16_t> {
+    friend type get(CropTop);
+};
+struct CropWidth : CropField<uint16_t> {
+    friend type get(CropWidth);
+};
+struct CropHeight : CropField<uint16_t> {
+    friend type get(CropHeight);
+};
+template <typename Tag, typename Tag::type M> struct Rob {
+    friend typename Tag::type get(Tag) { return M; }
+};
+template struct Rob<CropLeft, &Applet::cropLeft>;
+template struct Rob<CropTop, &Applet::cropTop>;
+template struct Rob<CropWidth, &Applet::cropWidth>;
+template struct Rob<CropHeight, &Applet::cropHeight>;
+
+// Where this applet's pixels can land, in screen coordinates: its crop, inside its tile
+static void clipOf(GFX *self, DrawRec &r)
+{
+    Applet *a = static_cast<Applet *>(self);
+    NicheGraphics::InkHUD::Tile *t = a->getTile();
+    int16_t dx = t ? t->getLeft() : 0, dy = t ? t->getTop() : 0;
+    const int16_t cl = a->*get(CropLeft()), ct = a->*get(CropTop());
+    const uint16_t cw = a->*get(CropWidth()), ch = a->*get(CropHeight());
+    int16_t l = std::max<int16_t>(cl, 0), tp = std::max<int16_t>(ct, 0);
+    int16_t rr = std::min<int16_t>(cl + cw, a->width());
+    int16_t bb = std::min<int16_t>(ct + ch, a->height());
+    r.clipX = l + dx;
+    r.clipY = tp + dy;
+    r.clipW = std::max<int16_t>(0, rr - l);
+    r.clipH = std::max<int16_t>(0, bb - tp);
+}
+
 static void tileOffset(GFX *self, int16_t &dx, int16_t &dy, std::string &owner)
 {
     // In this build every GFX that draws is an InkHUD Applet
@@ -46,6 +87,7 @@ static void addShape(DrawRec::Kind kind, GFX *self, int16_t x, int16_t y, int16_
     r.w = w;
     r.h = h;
     r.color = color;
+    clipOf(self, r);
     records.push_back(r);
     runOwner = nullptr; // A shape between two prints ends the text run
 }
@@ -74,6 +116,7 @@ extern "C" size_t __wrap__ZN3GFX5writeEh(GFX *self, uint8_t c)
         r.y = bw ? by + dy : cy + dy;
         r.w = bw;
         r.h = bh;
+        clipOf(self, r);
         records.push_back(r);
     }
     DrawRec &r = records.back();
@@ -139,8 +182,10 @@ bool drawLogDump(const char *path)
     fprintf(f, "[\n");
     for (size_t i = 0; i < records.size(); i++) {
         const DrawRec &r = records[i];
-        fprintf(f, " {\"kind\":\"%s\",\"owner\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"color\":%u,\"hex\":\"",
-                kinds[r.kind], r.owner.c_str(), r.x, r.y, r.w, r.h, r.color);
+        fprintf(f,
+                " {\"kind\":\"%s\",\"owner\":\"%s\",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"color\":%u,"
+                "\"clip\":[%d,%d,%d,%d],\"hex\":\"",
+                kinds[r.kind], r.owner.c_str(), r.x, r.y, r.w, r.h, r.color, r.clipX, r.clipY, r.clipW, r.clipH);
         for (unsigned char c : r.text)
             fprintf(f, "%02x", c);
         fprintf(f, "\"}%s\n", i + 1 < records.size() ? "," : "");
