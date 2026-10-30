@@ -955,7 +955,12 @@ void InkHUD::T5MapApplet::drawCell(int16_t left, int16_t top, uint16_t w, uint16
     setFont(fontSmall);
     printAt(centerX, blockTop, cap, CENTER);
     setFont(fontMedium);
-    const int16_t valueTop = blockTop + capH + 2;
+    int16_t valueTop = blockTop + capH + 2;
+    if (getTextWidth(value) + 1 > (int16_t)w - 8) {
+        // A short name too wide for the cell steps down to small on the same baseline, never elided (Panel Fit D7)
+        setFont(fontSmall);
+        valueTop += fontMedium.heightAboveCursor() - fontSmall.heightAboveCursor();
+    }
     if (bold)
         printBold(centerX, valueTop, value, CENTER);
     else
