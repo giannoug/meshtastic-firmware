@@ -356,6 +356,36 @@ static void renderCoreScreens()
         testDelay(350); // A task layer ignores taps for its first 300 ms (System UI G1)
         tapLabel("EU 868");
     });
+    both("menu-region-picker-p2", [] { // C3p2: the page with RU and the widest range
+        menuPage("RADIO");
+        InkHUD::T5MenuTask::openPicker(InkHUD::T5Act::PICK_REGION, 0);
+        testDelay(350);
+        tapLabel("NEXT");
+    });
+    {
+        // C4n and C4w: changing from NOT SET, and the widest name and range (Panel Fit D17). Only the region
+        // field changes, so nothing else on the device moves; it is put back after
+        const auto was = config.lora.region;
+        config.lora.region = meshtastic_Config_LoRaConfig_RegionCode_UNSET;
+        both("menu-region-confirm-unset", [] {
+            menuPage("RADIO");
+            InkHUD::T5MenuTask::openPicker(InkHUD::T5Act::PICK_REGION, 0);
+            testDelay(350);
+            tapLabel("US");
+        });
+        config.lora.region = meshtastic_Config_LoRaConfig_RegionCode_ITU2_125CM;
+        both("menu-region-confirm-wide", [] {
+            menuPage("RADIO");
+            InkHUD::T5MenuTask::openPicker(InkHUD::T5Act::PICK_REGION, 0);
+            for (int page = 0; page < 8; page++) {
+                testDelay(350);
+                if (tapLabel("LORA 24") || !tapLabel("NEXT"))
+                    break;
+            }
+        });
+        config.lora.region = was;
+        resetUi();
+    }
     both("menu-channel1", [] {
         menuPage("CHANNELS");
         tapLabel("1 \xB7 "); // The second channel's row: C7, titled with its stored name (D12)
