@@ -475,8 +475,10 @@ int InkHUD::T5SystemLayer::onReceiveTextMessage(const meshtastic_MeshPacket *p)
     if (dm || !messages.hasDM) {
         meshtastic_NodeInfoLite *node = nodeDB->getMeshNode(sender);
         if (node && nodeInfoLiteHasUser(node)) {
-            messages.shortName = parseShortName(node);
-            messages.longName = parse(node->long_name);
+            // The T5 helpers: an empty short name falls back to the last four hex digits, and decoding does
+            // not depend on whichever font this layer last set
+            messages.shortName = t5NodeTag(sender);
+            messages.longName = t5Parse(node->long_name);
         } else {
             // No NodeDB entry: the node id in !hex form, exactly as frozen. Never an
             // invented name.
@@ -1019,26 +1021,37 @@ void InkHUD::T5SystemLayer::drawBanner()
     printThick(T5Applet::MARGIN + tagW / 2, tagMid, tag, 2, 1);
     setTextColor(BLACK);
 
-    int16_t whoRight = width() - T5Applet::MARGIN;
+    // The line ends where the text column does: the screen edge in Carry, short of the buttons in Console (K1)
+    const int16_t lineRight = g.previewLeft + g.previewW;
+    int16_t whoRight = lineRight;
     if (!timeText.empty()) {
-        printAt(width() - T5Applet::MARGIN, tagMid, timeText, RIGHT, MIDDLE);
-        whoRight = width() - T5Applet::MARGIN - getTextWidth(timeText) - T5Applet::MARGIN;
+        printAt(lineRight, tagMid, timeText, RIGHT, MIDDLE);
+        whoRight = lineRight - getTextWidth(timeText) - T5Applet::MARGIN;
     }
 
-    // The sender line is one line and is cut, never wrapped: the short name comes
-    // first, so it survives.
+    // The sender line is one line, never wrapped, and truncates with an ellipsis: the short name comes
+    // first, so it survives (N2)
     const int16_t whoLeft = T5Applet::MARGIN + tagW + 14;
-    setCrop(whoLeft, g.tagTop, whoRight > whoLeft ? whoRight - whoLeft : 0, g.tagH);
-    printBold(whoLeft, tagMid - lh / 2, who);
+    const int16_t whoW = whoRight > whoLeft ? whoRight - whoLeft : 0;
+    setCrop(whoLeft, g.tagTop, whoW, g.tagH);
+    printBold(whoLeft, tagMid - lh / 2, t5Elide(*this, who, whoW > 2 ? whoW - 2 : 0)); // 2 px of faux bold
     resetCrop();
 
     // The preview is hard-limited to the frozen two-line box: the banner never
     // grows. A surface the design gives no preview simply has none - the banner keeps its frozen rect
     // and its DISMISS position, and the box is left blank.
     if (!preview.empty()) {
-        setCrop(g.previewLeft, g.previewTop, g.previewW, g.previewH);
-        printWrapped(g.previewLeft, g.previewTop, g.previewW, preview);
-        resetCrop();
+        // Whole lines only, the last ending in an ellipsis when the message goes on (N2)
+        AppletFont font = getFont(); // Its metrics accessors are not const
+        const size_t fit =
+            std::max<int16_t>(1, (g.previewH - font.heightAboveCursor() - font.heightBelowCursor()) / font.lineHeight() + 1);
+        const std::vector<std::string> lines = t5WrapLines(*this, preview, g.previewW);
+        for (size_t i = 0; i < lines.size() && i < fit; i++) {
+            std::string line = lines[i];
+            if (i + 1 == fit && lines.size() > fit)
+                line = t5Elide(*this, line + " " + lines[i + 1], g.previewW);
+            printAt(g.previewLeft, g.previewTop + (int16_t)i * font.lineHeight(), line);
+        }
     }
 
     // Actions. An info banner keeps DISMISS in the same place, so the hand learns
