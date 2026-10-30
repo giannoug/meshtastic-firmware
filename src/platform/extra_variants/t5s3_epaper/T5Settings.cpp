@@ -20,6 +20,7 @@
 #include "mesh/MeshRadio.h"
 #include "mesh/RadioInterface.h"
 #include "mesh/RadioLibInterface.h"
+#include <algorithm>
 
 #if !MESHTASTIC_EXCLUDE_MQTT
 #include "mqtt/MQTT.h"
@@ -401,6 +402,25 @@ std::string uptimeText()
     return buf;
 }
 
+// Roles in capitals, as every Menu frame shows them ("CLIENT", Menu C1, C10)
+std::string roleText(meshtastic_Config_DeviceConfig_Role role)
+{
+    std::string text = DisplayFormatters::getDeviceRole(role);
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char ch) { return toupper(ch); });
+    return text;
+}
+
+// The root hint's one-unit form (Menu C1): "3 d", "4 h", "12 min"
+std::string uptimeShortText()
+{
+    const uint32_t secs = millis() / 1000;
+    if (secs >= 86400)
+        return to_string(secs / 86400) + " d";
+    if (secs >= 3600)
+        return to_string(secs / 3600) + " h";
+    return to_string(secs / 60) + " min";
+}
+
 std::string sdCardText()
 {
 #if defined(HAS_SDCARD) && !defined(SDCARD_USE_SOFT_SPI)
@@ -598,22 +618,26 @@ std::string InkHUD::t5CategorySummary(uint8_t index, bool shortForm)
         const uint8_t count = channels.getNumChannels();
         if (shortForm)
             return to_string(count) + " ACTIVE";
-        return to_string(count) + " active, primary " + channelTitle(channels.getPrimaryIndex());
+        return to_string(count) + " active " + SEP + " primary " + channelTitle(channels.getPrimaryIndex());
     }
     case T5Page::POSITION: {
         if (!gpsFitted())
             return shortForm ? std::string("NO GPS") : std::string("No receiver, source ") + positionSource();
         if (config.position.gps_mode != meshtastic_Config_PositionConfig_GpsMode_ENABLED)
             return shortForm ? "GPS OFF" : "GPS off";
-        return shortForm ? std::string("GPS ") + SEP + " " + gpsReceiverText()
-                         : std::string("GPS, ") + (gpsReceiverText() == "SEARCHING" ? "searching" : gpsReceiverText());
+        if (shortForm)
+            return std::string("GPS ") + SEP + " " + gpsReceiverText();
+        // Root hint (Menu C1): "GPS FIX · 9 sats", "GPS searching"
+        if (localPosition.sats_in_view)
+            return std::string("GPS FIX ") + SEP + " " + to_string(localPosition.sats_in_view) + " sats";
+        return havePosition() ? "GPS FIX" : "GPS searching";
     }
     case T5Page::CONNECTIVITY: {
         if (!config.bluetooth.enabled)
             return shortForm ? "BT OFF" : "Bluetooth off";
         if (shortForm)
             return phoneConnected() ? std::string("BT ") + SEP + " PHONE ON" : std::string("BT ") + SEP + " NO PHONE";
-        return phoneConnected() ? "Bluetooth on, phone connected" : "Bluetooth on, no phone";
+        return std::string("Bluetooth on ") + SEP + (phoneConnected() ? " phone connected" : " no phone");
     }
     case T5Page::SCREEN: {
         const bool console = t5CurrentMode() == T5Mode::CONSOLE;
@@ -624,14 +648,22 @@ std::string InkHUD::t5CategorySummary(uint8_t index, bool shortForm)
                (t5TouchPreferenceEnabled() ? "touch on" : "touch off");
     }
     case T5Page::POWER: {
+        // Root hint (Menu C1): "87 % · 4.05 V · charging"; the Console tile keeps the short status form
+        if (!shortForm && powerStatus->isInitialized() && powerStatus->getHasBattery()) {
+            char volts[12];
+            snprintf(volts, sizeof(volts), "%.2f V", powerStatus->getBatteryVoltageMv() / 1000.0);
+            std::string hint = T5Applet::join(to_string(powerStatus->getBatteryChargePercent()) + " %", volts);
+            if (powerStatus->getHasUSB())
+                hint = T5Applet::join(hint, powerStatus->getIsCharging() ? "charging" : "on USB");
+            return hint;
+        }
         const std::string head = T5Applet::powerLabel(!shortForm, !shortForm);
         return head.empty() ? std::string("BATTERY ") + DASH : head;
     }
     case T5Page::DEVICE:
-        return T5Applet::join(t5Parse(shortForm ? owner.short_name : owner.long_name),
-                              DisplayFormatters::getDeviceRole(config.device.role));
+        return T5Applet::join(t5Parse(shortForm ? owner.short_name : owner.long_name), roleText(config.device.role));
     case T5Page::ABOUT:
-        return shortForm ? "UP " + uptimeText() : "Firmware, hardware, uptime " + uptimeText();
+        return shortForm ? "UP " + uptimeText() : "Firmware, hardware, uptime " + uptimeShortText();
     default:
         return "";
     }
@@ -696,7 +728,7 @@ std::string InkHUD::t5PageContext(T5Page page, uint8_t channelIndex)
         return p.empty() ? "BATTERY NOT INITIALISED" : p;
     }
     case T5Page::DEVICE:
-        return T5Applet::join(t5Parse(owner.short_name), DisplayFormatters::getDeviceRole(config.device.role));
+        return T5Applet::join(t5Parse(owner.short_name), roleText(config.device.role));
     case T5Page::ABOUT:
         return std::string("T5 E-PAPER S3 PRO ") + SEP + " UP " + uptimeText();
     case T5Page::DEVTOOLS:
@@ -971,7 +1003,7 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
         rows.push_back(nav("LONG NAME", t5Parse(owner.long_name), T5Act::EDIT_LONG_NAME));
         rows.push_back(nav("SHORT NAME", t5Parse(owner.short_name), T5Act::EDIT_SHORT_NAME));
 
-        const char *roleName = DisplayFormatters::getDeviceRole(config.device.role);
+        const std::string roleName = roleText(config.device.role);
         T5Row role = nav("ROLE", roleName, T5Act::PICK_ROLE, "RESTARTS");
         if (!roleIsOffered()) {
             // The actual value is useful, so it is shown rather than hidden, and never silently
@@ -1345,8 +1377,8 @@ bool InkHUD::t5NeedsConfirm(T5Act which, int32_t value, uint8_t channelIndex, T5
             return false;
         out.title = "CHANGE ROLE?";
         out.crumb = std::string("DEVICE ") + T5Applet::FWD + " ROLE";
-        out.from = DisplayFormatters::getDeviceRole(config.device.role);
-        out.to = DisplayFormatters::getDeviceRole(target);
+        out.from = roleText(config.device.role);
+        out.to = roleText(target);
         out.bullets = {"The device restarts in about 5 seconds.",
                        target == meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE
                            ? "This node stops relaying other people's messages."
