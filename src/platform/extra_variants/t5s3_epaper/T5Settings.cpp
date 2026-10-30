@@ -885,8 +885,13 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
         rows.push_back(info("PHONE", !config.bluetooth.enabled ? "BLUETOOTH OFF"
                                      : phoneConnected()        ? "CONNECTED"
                                                                : "NOT CONNECTED"));
-        rows.push_back(nav("PAIRING PIN", config.bluetooth.fixed_pin ? "FIXED" : "RANDOM", T5Act::PICK_PIN_MODE, nullptr,
-                           "A fixed PIN is chosen in the app."));
+        // The pairing mode, not fixed_pin: that field is the PIN number itself
+        const auto pinMode = config.bluetooth.mode;
+        rows.push_back(nav("PAIRING PIN",
+                           pinMode == meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN ? "FIXED"
+                           : pinMode == meshtastic_Config_BluetoothConfig_PairingMode_NO_PIN  ? "NO PIN"
+                                                                                              : "RANDOM",
+                           T5Act::PICK_PIN_MODE, nullptr, "A fixed PIN is chosen in the app."));
 
         rows.push_back(section("WI-FI"));
         T5Row wifi = state("WI-FI", config.network.wifi_enabled, T5Act::SET_WIFI, "RESTARTS");
@@ -1260,7 +1265,8 @@ std::vector<InkHUD::T5Option> InkHUD::t5PickOptions(T5Act which, uint8_t channel
             T5Option o;
             o.label = i ? "FIXED" : "RANDOM";
             o.value = i;
-            o.selected = config.bluetooth.fixed_pin == (i != 0);
+            o.selected = config.bluetooth.mode == (i ? meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN
+                                                     : meshtastic_Config_BluetoothConfig_PairingMode_RANDOM_PIN);
             out.push_back(o);
         }
         break;
@@ -1604,11 +1610,15 @@ InkHUD::T5ApplyResult InkHUD::t5Apply(T5Act which, int32_t value, uint8_t channe
         return saveAndReload() ? T5ApplyResult::DONE : T5ApplyResult::FAILED;
 
     case T5Act::PICK_PIN_MODE:
-    case T5Act::SET_PIN_MODE:
-        if (config.bluetooth.fixed_pin == (value != 0))
+    case T5Act::SET_PIN_MODE: {
+        // The mode only: fixed_pin is the PIN the app chose, and writing a 0 / 1 here would replace it
+        const auto wanted = value ? meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN
+                                  : meshtastic_Config_BluetoothConfig_PairingMode_RANDOM_PIN;
+        if (config.bluetooth.mode == wanted)
             return T5ApplyResult::DONE;
-        config.bluetooth.fixed_pin = value != 0;
+        config.bluetooth.mode = wanted;
         return nodeDB->saveToDisk(SEGMENT_CONFIG) ? T5ApplyResult::DONE : T5ApplyResult::FAILED;
+    }
 
     case T5Act::SET_UNITS: {
         // The canonical display-unit setting, which Map and Node detail already read. No T5 copy
