@@ -124,7 +124,7 @@ struct T5Row {
     std::string summary;       // CATEGORY: the live second line
     std::string hint;          // Carry only; Console moves hints into the confirmation
     std::string reason;        // Why this row cannot be used, inside the dotted box
-    const char *tag = nullptr; // "RESTARTS", on every setting that reboots
+    const char *tag = nullptr; // "RESTARTS", on every setting that reboots. Not drawn (Panel Fit D2)
     bool available = true;
     bool on = false;                  // STATE
     std::vector<std::string> options; // CHOICE cells

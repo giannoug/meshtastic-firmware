@@ -674,7 +674,7 @@ std::string InkHUD::t5PageContext(T5Page page, uint8_t channelIndex)
         return T5Applet::join(T5Applet::join(t5Parse(owner.short_name), t5NodeId(nodeDB->getNodeNum())),
                               regionSet() ? regionName(config.lora.region) : "RADIO SILENT");
     case T5Page::RADIO:
-        return "CHANGES HERE CAN CUT YOU OFF FROM YOUR MESH";
+        return "CHANGES CAN CUT YOU OFF THE MESH";
     case T5Page::CHANNELS:
         return std::string("VIEW AND SHARING ") + SEP + " KEYS STAY IN THE APP";
     case T5Page::CHANNEL:
@@ -775,8 +775,7 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
         rows.push_back(
             nav("HOP LIMIT", to_string(Default::getConfiguredOrDefaultHopLimit(config.lora.hop_limit)), T5Act::PICK_HOP));
 
-        T5Row tx = state("TRANSMIT", config.lora.tx_enabled, T5Act::SET_TRANSMIT, nullptr,
-                         "Off = listen only. Nothing you send leaves the device.");
+        T5Row tx = state("TRANSMIT", config.lora.tx_enabled, T5Act::SET_TRANSMIT, nullptr, "Off = listen only. Nothing is sent.");
         if (!regionSet())
             block(tx, "SET REGION FIRST");
         rows.push_back(tx);
@@ -908,12 +907,12 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
     case T5Page::SCREEN: {
         rows.push_back(section("MODE"));
         rows.push_back(choice("MODE", {"CARRY", "CONSOLE"}, t5CurrentMode() == T5Mode::CONSOLE ? 1 : 0, T5Act::SET_MODE,
-                              "Console is landscape, for desk use. Redraws the whole screen."));
+                              "Console is landscape, for desk use."));
 
         rows.push_back(section("LIGHT & TOUCH"));
         rows.push_back(state("FRONT LIGHT", t5BacklightIsUserEnabled(), T5Act::SET_FRONT_LIGHT));
         rows.push_back(nav("SLEEP AFTER", labelFor(SLEEP_OPTIONS, SLEEP_COUNT, config.display.screen_on_secs), T5Act::PICK_SLEEP,
-                           nullptr, "Light and touch turn off. The side button wakes."));
+                           nullptr, "Light and touch turn off. Side button wakes."));
 
         // OFF is offered because the side-button short press calls toggleTouchInputEnabled() while
         // touch is off, which is the recovery path the confirmation promises (decision 7)

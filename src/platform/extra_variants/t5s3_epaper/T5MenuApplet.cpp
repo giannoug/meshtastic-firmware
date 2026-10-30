@@ -22,11 +22,12 @@ InkHUD::T5MenuApplet *instance = nullptr;
 // The frozen LIVE rows refresh at most once a minute, only while visible, and only if they changed
 constexpr uint32_t LIVE_REFRESH_MS = 60 * 1000UL;
 
-// Frozen Console tile grid: eight categories, 2 x 4, all visible so any one is a single tap away
-constexpr int16_t TILE_W = 180;
+// Frozen Console tile grid: eight categories, 2 x 4, all visible so any one is a single tap away. Two
+// unequal columns, A x 0-180 and B x 180-400, so CONNECTIVITY fits whole (Panel Fit D1)
+constexpr int16_t TILE_A_W = 180;
 constexpr int16_t TILE_H = 89;
 constexpr uint8_t TILE_COLUMNS = 2;
-constexpr int16_t TILES_WIDTH = TILE_COLUMNS * TILE_W; // 360; the pane starts two pixels later
+constexpr int16_t TILES_WIDTH = 400; // The pane starts here; the last 2 px of column B are the rule
 } // namespace
 
 InkHUD::T5MenuApplet::T5MenuApplet() : concurrency::OSThread("T5Menu")
@@ -177,15 +178,15 @@ InkHUD::T5MenuApplet::Metrics InkHUD::T5MenuApplet::metrics() const
         m.infoH = 44;
         m.actionSlot = 72;
         m.pagerH = 64;
-        m.paneLeft = TILES_WIDTH + 2;
+        m.paneLeft = TILES_WIDTH;
         m.paneRight = width();
     } else {
         m.headerH = 100;
         m.listTop = 100;
         m.listBottom = t5NavTop(*this); // 840
-        m.sectionH = 36;
+        m.sectionH = 32;
         m.rowH = 72;
-        m.rowHintH = 92;
+        m.rowHintH = 80;
         m.categoryH = 80;
         m.infoH = 48;
         m.actionSlot = 80;
@@ -275,11 +276,13 @@ void InkHUD::T5MenuApplet::drawHeader(const Metrics &m)
     resetCrop();
 
     if (backLabel) {
-        // Carry has room for the crumb and the page name on one line
+        // Carry has room for the crumb and the page name, medium regular, on one line (Panel Fit D2)
         setFont(fontMedium);
         const int16_t nameTop = 14 + fontLarge.heightAboveCursor() - fontMedium.heightAboveCursor();
-        setCrop(x, 0, std::max<int16_t>(0, statusLeft - 12 - x), 99);
-        printBold(x, nameTop, title);
+        // shortcut: a long room name (CONNECTIVITY) elides beside the status; Panel Fit gives no rule for it yet
+        const int16_t nameW = std::max<int16_t>(0, statusLeft - 12 - x);
+        setCrop(x, 0, nameW, 99);
+        printAt(x, nameTop, t5Elide(*this, title, nameW));
         resetCrop();
     }
 
@@ -295,31 +298,32 @@ void InkHUD::T5MenuApplet::drawHeader(const Metrics &m)
 void InkHUD::T5MenuApplet::drawConsoleTiles(const Metrics &m)
 {
     for (uint8_t i = 0; i < T5_CATEGORY_COUNT; i++) {
-        const int16_t left = (int16_t)(i % TILE_COLUMNS) * TILE_W;
+        const int16_t left = i % TILE_COLUMNS ? TILE_A_W : 0;
+        const int16_t w = i % TILE_COLUMNS ? TILES_WIDTH - 2 - TILE_A_W : TILE_A_W;
         const int16_t top = m.headerH + (int16_t)(i / TILE_COLUMNS) * TILE_H;
         const bool current = t5CategoryPage(i) == page || (t5PageParent(page) != T5Page::ROOT && i == consoleCategory);
 
         if (current) {
-            fillRect(left, top, TILE_W, TILE_H, BLACK);
+            fillRect(left, top, w, TILE_H, BLACK);
             setTextColor(WHITE);
         }
-        setFont(fontMedium);
-        printBold(left + 12, top + 14, t5CategoryName(i));
+        // Name small bold at baseline top+30, summary small regular at top+62 (small caps end 19 px down)
         setFont(fontSmall);
-        setCrop(left + 12, top, TILE_W - 24, TILE_H);
-        printAt(left + 12, top + 14 + fontMedium.lineHeight() + 4, t5Elide(*this, t5CategorySummary(i, true), TILE_W - 24));
+        printBold(left + 12, top + 30 - 19, t5CategoryName(i));
+        setCrop(left + 12, top, w - 24, TILE_H);
+        printAt(left + 12, top + 62 - 19, t5Elide(*this, t5CategorySummary(i, true), w - 24));
         resetCrop();
         if (current)
             setTextColor(BLACK);
 
         if (!current) {
-            drawLine(left, top + TILE_H - 1, left + TILE_W - 1, top + TILE_H - 1, BLACK);
+            drawLine(left, top + TILE_H - 1, left + w - 1, top + TILE_H - 1, BLACK);
             if (i % TILE_COLUMNS)
                 drawLine(left, top, left, top + TILE_H - 1, BLACK);
         }
     }
     // The rule between the tiles and the pane
-    fillRect(TILES_WIDTH, m.headerH, 2, m.listBottom - m.headerH, BLACK);
+    fillRect(TILES_WIDTH - 2, m.headerH, 2, m.listBottom - m.headerH, BLACK);
 }
 
 void InkHUD::T5MenuApplet::drawPager(const Metrics &m, uint8_t pages)
@@ -328,6 +332,25 @@ void InkHUD::T5MenuApplet::drawPager(const Metrics &m, uint8_t pages)
     drawLine(m.paneLeft, top, m.paneRight - 1, top, BLACK);
     const int16_t cellW = (m.paneRight - m.paneLeft) / 3;
     setFont(fontSmall);
+    if (t5IsConsole(*this)) {
+        // Three ruled 176 px cells, small bold; PREV stays, struck and regular, when there is none (Panel Fit D1)
+        const int16_t mid = top + m.pagerH / 2;
+        for (uint8_t i = 1; i < 3; i++)
+            drawLine(m.paneLeft + i * cellW, top, m.paneLeft + i * cellW, m.listBottom - 1, BLACK);
+        const std::string prev = std::string(T5Applet::BACK) + " PREV", next = std::string("NEXT ") + T5Applet::FWD;
+        if (pageIndex > 0) {
+            printBold(m.paneLeft + cellW / 2, mid - fontSmall.lineHeight() / 2, prev, CENTER);
+        } else {
+            printAt(m.paneLeft + cellW / 2, mid, prev, CENTER, MIDDLE);
+            const int16_t w = getTextWidth(prev);
+            t5StrikeThrough(*this, m.paneLeft + (cellW - w) / 2, mid, w);
+        }
+        printBold(m.paneLeft + cellW * 3 / 2, mid - fontSmall.lineHeight() / 2,
+                  to_string(pageIndex + 1) + " / " + to_string(pages), CENTER);
+        if (pageIndex + 1 < pages)
+            printBold(m.paneLeft + cellW * 5 / 2, mid - fontSmall.lineHeight() / 2, next, CENTER);
+        return;
+    }
     if (pageIndex > 0)
         printAt(m.paneLeft + cellW / 2, top + m.pagerH / 2, std::string(T5Applet::BACK) + " PREV", CENTER, MIDDLE);
     printAt(m.paneLeft + (m.paneRight - m.paneLeft) / 2, top + m.pagerH / 2, to_string(pageIndex + 1) + " / " + to_string(pages),
@@ -379,26 +402,32 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
     const int16_t left = m.paneLeft + T5_MARGIN;
     const int16_t right = m.paneRight - T5_MARGIN;
     const int16_t centerY = top + h / 2;
+    // Panel Fit D2 / D1 baselines: a Carry row with a hint (or the retry line) has its label at top+38,
+    // its control in top+6..46 and the hint at top+66; a plain Carry row's label sits at top+46, a
+    // Console detail row's at top+45. Small caps end 19 px below the print top
+    const bool hinted = !console && (notSaved || !row.hint.empty());
+    const int16_t labelTop = top + (console ? 45 : hinted ? 38 : 46) - fontMedium.heightAboveCursor();
+    const int16_t controlY = hinted ? top + 26 : centerY;
+    const int16_t hintTop = top + 66 - 19;
 
     switch (row.kind) {
 
     case T5RowKind::SECTION:
         setFont(fontSmall);
-        printAt(left, top + (h - fontSmall.lineHeight()) / 2 - 2, row.label);
+        printBold(left, top + 25 - 19, row.label);
         drawLine(m.paneLeft, top + h - 1, m.paneRight - 1, top + h - 1, BLACK);
         return;
 
     case T5RowKind::CATEGORY: {
-        setFont(console ? fontMedium : fontLarge);
-        printBold(left, top + (console ? 8 : 12), row.label);
+        // Medium bold label at top+38, small hint at top+66 elided at 440, chevron at top+50 (Panel Fit D2)
+        setFont(fontMedium);
+        printBold(left, top + 38 - fontMedium.heightAboveCursor(), row.label);
         setFont(fontSmall);
         setCrop(left, top, std::max<int16_t>(0, right - left), h);
-        // Elided short of the chevron rather than cut by the crop
-        printAt(left, top + (console ? 8 : 12) + (console ? fontMedium : fontLarge).lineHeight() + 4,
-                t5Elide(*this, row.summary, std::max<int16_t>(0, right - left - 24)));
+        printAt(left, hintTop, t5Elide(*this, row.summary, 440));
         resetCrop();
         setFont(fontMedium);
-        printAt(right, centerY, T5Applet::FWD, RIGHT, MIDDLE);
+        printAt(right, top + 50 - fontMedium.heightAboveCursor(), T5Applet::FWD, RIGHT);
         drawLine(m.paneLeft, top + h - 1, m.paneRight - 1, top + h - 1, BLACK);
         return;
     }
@@ -430,10 +459,10 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
 
     case T5RowKind::INFO: {
         setFont(fontSmall);
-        printAt(left, top + (h - fontSmall.lineHeight()) / 2, row.label);
+        printAt(left, top + 32 - 19, row.label);
         // The value gives way to its label: a long name is elided, never drawn over it
         const int16_t valueW = std::max<int16_t>(0, right - left - getTextWidth(row.label) - 12 - 2);
-        printBold(right, top + (h - fontSmall.lineHeight()) / 2, t5Elide(*this, row.value, valueW), RIGHT);
+        printBold(right, top + 32 - 19, t5Elide(*this, row.value, valueW), RIGHT);
         return;
     }
 
@@ -473,26 +502,17 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
     }
 
     case T5RowKind::STATE: {
-        setFont(fontMedium);
-        const int16_t labelTop = row.hint.empty() || console ? centerY - fontMedium.lineHeight() / 2 : top + 12;
         int16_t labelRight = right - (console ? 72 : 76) - 12;
         if (!notSaved && !row.available) {
             // The reason box replaces the ON / OFF chip and is wider: the label gives way to it
             setFont(fontSmall);
             labelRight = std::min<int16_t>(labelRight, right - (getTextWidth(row.reason) + 24) - 12);
         }
-        if (row.tag) {
-            setFont(fontSmall);
-            const int16_t tagW = getTextWidth(row.tag) + 16;
-            printAt(labelRight, labelTop + 4, row.tag, RIGHT);
-            labelRight -= tagW;
-        }
         setFont(fontMedium);
         setCrop(left, top, std::max<int16_t>(0, labelRight - left), h);
-        printBold(left, labelTop, t5Elide(*this, row.label, std::max<int16_t>(0, labelRight - left - 1))); // 1 px bold
+        printAt(left, labelTop, t5Elide(*this, row.label, std::max<int16_t>(0, labelRight - left)));
         resetCrop();
 
-        const int16_t controlY = row.hint.empty() || console ? centerY : top + 12 + fontMedium.lineHeight() / 2;
         if (notSaved)
             drawChip(right, controlY, "NOT SAVED", true);
         else if (row.available)
@@ -500,10 +520,10 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
         else
             drawReason(right, controlY, row.reason);
 
-        if (!console && (notSaved || !row.hint.empty())) {
+        if (hinted) {
             setFont(fontSmall);
             setCrop(left, top, std::max<int16_t>(0, right - left), h);
-            printAt(left, top + 12 + fontMedium.lineHeight() + 2, t5Elide(*this, notSaved ? RETRY : row.hint, right - left));
+            printAt(left, hintTop, t5Elide(*this, notSaved ? RETRY : row.hint, right - left));
             resetCrop();
         }
         drawLine(m.paneLeft, top + h - 1, m.paneRight - 1, top + h - 1, BLACK);
@@ -515,12 +535,11 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
         const int16_t cellW = choiceCellW(row), cellH = console ? 44 : 48;
         const int16_t cells = (int16_t)row.options.size();
         const int16_t groupLeft = right - cells * cellW;
-        const int16_t labelTop = row.hint.empty() || console ? centerY - fontMedium.lineHeight() / 2 : top + 12;
-        const int16_t cellTop = (row.hint.empty() || console ? centerY : top + 12 + fontMedium.lineHeight() / 2) - cellH / 2;
+        const int16_t cellTop = controlY - cellH / 2;
 
         setFont(fontMedium);
         setCrop(left, top, std::max<int16_t>(0, groupLeft - 12 - left), h);
-        printBold(left, labelTop, row.label);
+        printAt(left, labelTop, row.label);
         resetCrop();
 
         setFont(fontSmall);
@@ -537,10 +556,10 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
             }
         }
 
-        if (!console && (notSaved || !row.hint.empty())) {
+        if (hinted) {
             setFont(fontSmall);
             setCrop(left, top, std::max<int16_t>(0, right - left), h);
-            printAt(left, top + 12 + fontMedium.lineHeight() + 2, t5Elide(*this, notSaved ? RETRY : row.hint, right - left));
+            printAt(left, hintTop, t5Elide(*this, notSaved ? RETRY : row.hint, right - left));
             resetCrop();
         }
         drawLine(m.paneLeft, top + h - 1, m.paneRight - 1, top + h - 1, BLACK);
@@ -549,20 +568,17 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
 
     case T5RowKind::NAV:
     default: {
-        const int16_t labelTop = row.hint.empty() || console ? centerY - fontMedium.lineHeight() / 2 : top + 12;
-        const int16_t chevronW = row.available ? 24 : 0;
+        const int16_t chevronW = row.available ? 22 : 0; // Value right edge 470 in Carry (Panel Fit D2)
         int16_t valueRight = right - chevronW;
 
         if (row.available) {
             setFont(fontMedium);
-            printAt(right, centerY, T5Applet::FWD, RIGHT, MIDDLE);
+            printAt(right, labelTop, T5Applet::FWD, RIGHT);
         }
 
         // The value, or the inverted NOT SAVED the frozen error row carries
         if (!row.available) {
-            valueRight =
-                drawReason(right, row.hint.empty() || console ? centerY : top + 12 + fontMedium.lineHeight() / 2, row.reason) -
-                12;
+            valueRight = drawReason(right, controlY, row.reason) - 12;
         } else if (notSaved) {
             setFont(fontSmall);
             const int16_t w = getTextWidth("NOT SAVED") + 20, hh = console ? 36 : 40;
@@ -573,33 +589,25 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
             setTextColor(BLACK);
             valueRight = bl - 12;
         } else if (!row.value.empty()) {
-            setFont(fontSmall);
-            const int16_t tagW = row.tag ? getTextWidth(row.tag) + 16 : 0;
             setFont(fontMedium);
-            // Short of room, the value keeps up to 60 % (it is the setting), the label elides into the rest.
-            // 2 px on each: faux bold
-            const int16_t room = valueRight - left - tagW - 12;
-            const int16_t forValue = std::max<int16_t>(room - getTextWidth(row.label) - 2, room * 3 / 5);
+            // Short of room the label elides first; the value elides only beyond 60 % of the row (Panel Fit D2).
+            // The RESTARTS tag is not drawn: the confirmation states the restart
+            const int16_t room = valueRight - left - 12;
+            const int16_t forValue = std::max<int16_t>(room - getTextWidth(row.label), (right - left) * 3 / 5);
             const std::string value = t5Elide(*this, row.value, std::max<int16_t>(0, forValue - 2));
             printBold(valueRight, labelTop, value, RIGHT);
             valueRight -= getTextWidth(value) + 12;
         }
 
-        if (row.tag) {
-            setFont(fontSmall);
-            printAt(valueRight, labelTop + 4, row.tag, RIGHT);
-            valueRight -= getTextWidth(row.tag) + 16;
-        }
-
         setFont(fontMedium);
         setCrop(left, top, std::max<int16_t>(0, valueRight - left), h);
-        printBold(left, labelTop, t5Elide(*this, row.label, std::max<int16_t>(0, valueRight - left - 2)));
+        printAt(left, labelTop, t5Elide(*this, row.label, std::max<int16_t>(0, valueRight - left)));
         resetCrop();
 
         setFont(fontSmall);
-        if (!console && (notSaved || !row.hint.empty())) {
+        if (hinted) {
             setCrop(left, top, std::max<int16_t>(0, right - left), h);
-            printAt(left, top + 12 + fontMedium.lineHeight() + 2, t5Elide(*this, notSaved ? RETRY : row.hint, right - left));
+            printAt(left, hintTop, t5Elide(*this, notSaved ? RETRY : row.hint, right - left));
             resetCrop();
         }
         drawLine(m.paneLeft, top + h - 1, m.paneRight - 1, top + h - 1, BLACK);
@@ -736,7 +744,7 @@ bool InkHUD::T5MenuApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
 
     // Console tiles: a tap swaps the pane
     if (t5IsConsole(*this) && tx < TILES_WIDTH && ty < m.listBottom) {
-        const uint8_t column = (uint8_t)(tx / TILE_W);
+        const uint8_t column = tx < TILE_A_W ? 0 : 1;
         const uint8_t rowIdx = (uint8_t)((ty - m.headerH) / TILE_H);
         const uint8_t index = (uint8_t)(rowIdx * TILE_COLUMNS + column);
         if (index < T5_CATEGORY_COUNT) {
@@ -782,7 +790,7 @@ bool InkHUD::T5MenuApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
 int16_t InkHUD::T5MenuApplet::choiceCellW(const T5Row &row)
 {
     setFont(fontSmall);
-    int16_t cellW = t5IsConsole(*this) ? 112 : 108;
+    int16_t cellW = t5IsConsole(*this) ? 140 : 108; // Console: 2 x 140 ending at 912 (Panel Fit D1)
     for (const std::string &option : row.options)
         cellW = std::max<int16_t>(cellW, getTextWidth(option) + 2 + 16); // 2 px of faux bold
     return cellW;
