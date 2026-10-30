@@ -492,7 +492,7 @@ int InkHUD::T5SystemLayer::onReceiveTextMessage(const meshtastic_MeshPacket *p)
         messages.channel = p->channel;
         messages.timestamp = getValidTime(RTCQuality::RTCQualityDevice, true);
         if (p->decoded.payload.size)
-            messages.preview = std::string((const char *)p->decoded.payload.bytes, p->decoded.payload.size);
+            messages.preview = t5Parse(std::string((const char *)p->decoded.payload.bytes, p->decoded.payload.size));
     }
 
     messages.count++;
