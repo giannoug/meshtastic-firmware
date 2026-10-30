@@ -303,17 +303,22 @@ void InkHUD::T5HomeApplet::onRender(bool full)
         renderCarry(s);
 }
 
-// Word-wrapped, showing only the whole lines which fit above bottom
+// Word-wrapped, showing only the whole lines which fit above bottom; the last one ends in an ellipsis when
+// text is left over. Lines are placed one by one: printWrapped's step is shorter than a glyph box
 void InkHUD::T5HomeApplet::printClipped(int16_t left, int16_t top, uint16_t w, int16_t bottom, const std::string &text)
 {
     AppletFont font = getFont();
     const int16_t lineBox = font.heightAboveCursor() + font.heightBelowCursor();
     if (bottom - top < lineBox)
         return;
-    const int16_t lines = (bottom - top - lineBox) / font.lineHeight() + 1;
-    setCrop(left, top, w, (lines - 1) * font.lineHeight() + lineBox);
-    printWrapped(left, top, w, text);
-    resetCrop();
+    const size_t fit = (bottom - top - lineBox) / font.lineHeight() + 1;
+    const std::vector<std::string> lines = t5WrapLines(*this, text, w);
+    for (size_t i = 0; i < lines.size() && i < fit; i++) {
+        std::string line = lines[i];
+        if (i + 1 == fit && lines.size() > fit)
+            line = t5Elide(*this, line + " " + lines[i + 1], w);
+        printAt(left, top + (int16_t)i * font.lineHeight(), line);
+    }
 }
 
 // Title, subtitle, and an inverted "N NEW" pill while the conversation has unseen messages
