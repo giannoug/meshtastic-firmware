@@ -187,19 +187,22 @@ void InkHUD::T5NodesApplet::renderCarry(const std::vector<Row> &rows, uint16_t n
         drawPickHeader();
     } else {
         // Header: title, both counts, and the sort control at the right edge, sharing one 79 px band.
-        // The counts are clipped to the gap between them rather than allowed to run under the box
+        // Counts that do not fit the gap before the box are left out, never run under it
         const int16_t sortLeft = boxedLabel("LAST HEARD", 79);
         setFont(fontLarge);
         printBold(MARGIN, 14, "NODES");
-        int16_t x = MARGIN + getTextWidth("NODES") + 12;
+        int16_t x = MARGIN + getTextWidth("NODES") + 10; // 10, not 12: a two-digit count then fits whole
         const int16_t countsTop = 14 + fontLarge.heightAboveCursor() - fontSmall.heightAboveCursor();
         setFont(fontSmall);
         const std::string nodesText = to_string(nodes) + " NODES", heardText = to_string(heard) + " HEARD 10M";
-        setCrop(x, 0, sortLeft - 12 - x, 79);
-        printBold(x, countsTop, nodesText);
-        x += getTextWidth(nodesText) + 12;
-        printAt(x, countsTop, heardText);
-        resetCrop();
+        // Each count is shown whole or not at all: a cut one reads as a different number
+        const int16_t room = sortLeft - 12;
+        if (x + getTextWidth(nodesText) + 1 <= room) { // printBold adds 1 px
+            printBold(x, countsTop, nodesText);
+            x += getTextWidth(nodesText) + 1 + 12;
+            if (x + getTextWidth(heardText) <= room)
+                printAt(x, countsTop, heardText);
+        }
         drawLine(0, 79, width() - 1, 79, BLACK);
     }
 
