@@ -1416,10 +1416,12 @@ void InkHUD::T5MapApplet::drawPanel(const Layout &l)
     };
 
     const uint8_t cols = l.console ? 2 : 4;
-    const int16_t gridTop = l.console ? 154 : 712;
+    const int16_t gridTop = l.console ? 156 : 712;
     const int16_t cellW = l.console ? 158 : 127, cellH = l.console ? 100 : 63;
     const int16_t gridLeft = l.console ? 612 : 0;
-    const int16_t padTop = l.console ? 14 : 8, gap = l.console ? 6 : 3;
+    // Panel Fit D4: label small regular, value small bold. Carry baselines 738 / 768 in the 712-776 row;
+    // Console baselines top+36 / top+74. Small caps are 18 px, so tops sit 18 px above those baselines
+    const int16_t labelTop = l.console ? 18 : 8, valueTop = l.console ? 56 : 38;
 
     if (!l.console)
         dottedRule(0, gridTop, l.panelW);
@@ -1428,17 +1430,17 @@ void InkHUD::T5MapApplet::drawPanel(const Layout &l)
         if (l.console)
             dottedRule(left, top, cellW);
         setFont(fontSmall);
-        printAt(left + 16, top + padTop, facts[i].key);
-        const int16_t valueTop = top + padTop + fontSmall.lineHeight() + gap;
-        setFont(fontMedium);
+        printAt(left + 16, top + labelTop, facts[i].key);
         if (facts[i].inverted) {
-            const uint16_t tw = getTextWidth(facts[i].value) + 12;
-            fillRect(left + 16, valueTop, tw, fontMedium.lineHeight(), BLACK);
+            const std::string value = t5Elide(*this, facts[i].value, cellW - 22 - 12 - 1);
+            const uint16_t tw = getTextWidth(value) + 12;
+            fillRect(left + 16, top + valueTop, tw, fontSmall.lineHeight(), BLACK);
             setTextColor(WHITE);
-            printBold(left + 16 + 6, valueTop, facts[i].value);
+            printBold(left + 16 + 6, top + valueTop, value);
             setTextColor(BLACK);
         } else {
-            printBold(left + 16, valueTop, facts[i].value);
+            // Only a distance past five digits can need this (D4)
+            printBold(left + 16, top + valueTop, t5Elide(*this, facts[i].value, cellW - 22 - 1)); // The 105 px value box (D4)
         }
     }
 
