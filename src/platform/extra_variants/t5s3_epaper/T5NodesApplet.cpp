@@ -186,39 +186,29 @@ void InkHUD::T5NodesApplet::renderCarry(const std::vector<Row> &rows, uint16_t n
     if (picking) {
         drawPickHeader();
     } else {
-        // Header: title, both counts, and the sort control at the right edge, sharing one 79 px band.
-        // Counts that do not fit the gap before the box are left out, never run under it
-        const int16_t sortLeft = boxedLabel("LAST HEARD", 79);
+        // Header: NODES and the sort chip on line 1, both counts on line 2 (Panel Fit D5). The shared
+        // chip box runs y 8-51, clear of the counts' cap top at 54
+        boxedLabel("LAST HEARD", 59);
         setFont(fontLarge);
-        printBold(MARGIN, 14, "NODES");
-        int16_t x = MARGIN + getTextWidth("NODES") + 8; // 8, not 12: any two-digit count then fits whole
-        const int16_t countsTop = 14 + fontLarge.heightAboveCursor() - fontSmall.heightAboveCursor();
+        printBold(MARGIN, 44 - fontLarge.heightAboveCursor(), "NODES");
         setFont(fontSmall);
-        const std::string nodesText = to_string(nodes) + " NODES", heardText = to_string(heard) + " HEARD 10M";
-        // Each count is shown whole or not at all: a cut one reads as a different number
-        const int16_t room = sortLeft - 12;
-        if (x + getTextWidth(nodesText) + 1 <= room) { // printBold adds 1 px
-            printBold(x, countsTop, nodesText);
-            x += getTextWidth(nodesText) + 1 + 12;
-            if (x + getTextWidth(heardText) <= room)
-                printAt(x, countsTop, heardText);
-        }
+        const int16_t countsTop = 72 - 19; // Baseline 72: small caps end 19 px below the print top
+        const std::string nodesText = to_string(nodes) + " NODES";
+        printBold(MARGIN, countsTop, nodesText);
+        printAt(MARGIN + getTextWidth(nodesText) + 1, countsTop, " \xB7 " + to_string(heard) + " HEARD 10M"); // 1 px bold
         drawLine(0, 79, width() - 1, 79, BLACK);
     }
 
-    // Long names and metadata share one column, just clear of the widest short name on this page
+    // Long names and metadata share the column at x 140, after the 112 px short-name column (Panel Fit D7)
     const int16_t barsLeft = width() - 38 - SIGNAL_W; // Frozen 38 px inset from the right edge
-    int16_t column = 112;
-    setFont(fontMedium);
-    for (const Row &row : rows)
-        column = std::max<int16_t>(column, MARGIN + getTextWidth(row.shortName) + 2 + 12);
+    const int16_t column = 140;
 
     for (uint8_t i = 0; i < rows.size(); i++) {
         const Row &row = rows[i];
         const int16_t top = rowsTop() + i * rowHeight();
 
+        printShortName(MARGIN, top + 12, row.shortName);
         setFont(fontMedium);
-        printBold(MARGIN, top + 12, row.shortName);
         setCrop(column, top, barsLeft - 12 - column, rowHeight());
         printAt(column, top + 12, t5Elide(*this, row.longName, barsLeft - 12 - column));
         resetCrop();
@@ -262,7 +252,7 @@ void InkHUD::T5NodesApplet::renderConsole(const std::vector<Row> &rows, uint16_t
     }
 
     // Column headings
-    constexpr int16_t nameX = 16, longX = 120, heardX = 366, hopsX = 476, snrX = 564, distX = 652, bearingX = 750;
+    constexpr int16_t nameX = 16, longX = 140, heardX = 366, hopsX = 476, snrX = 564, distX = 652, bearingX = 750;
     const std::pair<int16_t, const char *> headings[] = {{nameX, "NAME"},      {longX, "LONG NAME"}, {heardX, "HEARD"},
                                                          {hopsX, "HOPS"},      {snrX, "SNR"},        {distX, "DIST"},
                                                          {bearingX, "BEARING"}};
@@ -276,9 +266,8 @@ void InkHUD::T5NodesApplet::renderConsole(const std::vector<Row> &rows, uint16_t
         const int16_t mid = top + rowHeight() / 2 - 1;
         auto cell = [](const std::string &text) { return text.empty() ? std::string(DASH) : text; };
 
+        printShortName(nameX, mid - fontMedium.lineHeight() / 2, row.shortName);
         setFont(fontMedium);
-        setCrop(nameX, top, longX - nameX - 8, rowHeight());
-        printBold(nameX, mid - fontMedium.lineHeight() / 2, row.shortName);
         setCrop(longX, top, heardX - longX - 24, rowHeight()); // Wider than a word space: a cut name can't run into HEARD
         printAt(longX, mid, t5Elide(*this, row.longName, heardX - longX - 24), LEFT, MIDDLE);
         resetCrop();

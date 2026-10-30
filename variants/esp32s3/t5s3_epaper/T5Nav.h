@@ -101,6 +101,19 @@ template <class Base> class T5NavDraw : public Base
         this->printThick(centerX, y + this->getFont().lineHeight() / 2, text, 2, 1);
     }
 
+    // A short name is never elided: one wider than its column steps down to small bold on the same
+    // baseline (Panel Fit D7). y is the top of a medium line. Leaves the font set to whichever drew
+    void printShortName(int16_t x, int16_t y, const std::string &text, int16_t columnW = 112)
+    {
+        this->setFont(Applet::fontMedium);
+        if (this->getTextWidth(text) + 1 <= columnW) { // printBold adds 1 px
+            printBold(x, y, text);
+            return;
+        }
+        this->setFont(Applet::fontSmall);
+        printBold(x, y + Applet::fontMedium.heightAboveCursor() - Applet::fontSmall.heightAboveCursor(), text);
+    }
+
     // A 2 px box with the frozen 14 / 8 px padding, at the right edge of a header band. Returns its
     // left edge, so a slot that is only sometimes filled still reserves its width
     int16_t boxedLabel(const char *text, int16_t bandH, bool draw = true)
