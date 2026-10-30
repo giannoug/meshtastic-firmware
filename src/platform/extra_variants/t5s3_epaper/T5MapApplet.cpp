@@ -970,7 +970,7 @@ void InkHUD::T5MapApplet::drawCell(int16_t left, int16_t top, uint16_t w, uint16
         setTextColor(BLACK);
     if (struck) {
         const uint16_t tw = getTextWidth(value);
-        strikeThrough(centerX - tw / 2 - 14, valueTop + valueH / 2, tw + 28);
+        strikeThrough(centerX - tw / 2 - 14, valueTop + getFont().lineHeight() / 2, tw + 28); // The face actually drawn
     }
 }
 
@@ -1266,6 +1266,20 @@ void InkHUD::T5MapApplet::drawMapBand(const Layout &l)
         usOnScreen = inBand(l, ux, uy, 13); // Half of the 26 px ring
     }
 
+    // The one labelled US state: GPS on, no lock, and a position we once had (E2). Its box is known now,
+    // so the ring labels can avoid it
+    std::string lastFix;
+    Rect lastFixBox{};
+    if (own.valid() && usOnScreen && own.kind == OWN_LAST_FIX) {
+        const std::string clock = t5ListTime(own.fixTime, false);
+        lastFix = clock.empty() ? "LAST FIX" : "LAST FIX " + clock;
+        setFont(fontSmall);
+        lastFixBox = Rect{(int16_t)(ux + 18), (int16_t)(uy - fontSmall.lineHeight() / 2), (uint16_t)(getTextWidth(lastFix) + 8),
+                          (uint16_t)fontSmall.lineHeight()};
+        if (lastFixBox.l + (int16_t)lastFixBox.w > l.mapW)
+            lastFix.clear();
+    }
+
     std::vector<Rect> taken;
     if (usOnScreen)
         drawRings(l, ux, uy);
@@ -1273,6 +1287,8 @@ void InkHUD::T5MapApplet::drawMapBand(const Layout &l)
         drawScaleBar(l); // The rings went with us, so a scale bar takes over (E1, E8)
 
     drawMarkers(l, taken);
+    if (!lastFix.empty())
+        taken.push_back(lastFixBox);
     if (usOnScreen)
         labelRings(l, ux, uy, taken);
 
@@ -1294,17 +1310,10 @@ void InkHUD::T5MapApplet::drawMapBand(const Layout &l)
     // US last, as the shared base does
     if (own.valid() && usOnScreen) {
         drawUs(l, ux, uy);
-        if (own.kind == OWN_LAST_FIX) {
-            // The one labelled US state: GPS on, no lock, and a position we once had (E2)
-            const std::string clock = t5ListTime(own.fixTime, false);
-            const std::string text = clock.empty() ? "LAST FIX" : "LAST FIX " + clock;
+        if (!lastFix.empty()) {
             setFont(fontSmall);
-            const uint16_t tw = getTextWidth(text) + 8;
-            const int16_t left = ux + 18, top = uy - fontSmall.lineHeight() / 2;
-            if (left + (int16_t)tw <= l.mapW) {
-                fillRect(left, top, tw, fontSmall.lineHeight(), WHITE);
-                printAt(left + 4, top, text);
-            }
+            fillRect(lastFixBox.l, lastFixBox.t, lastFixBox.w, lastFixBox.h, WHITE);
+            printAt(lastFixBox.l + 4, lastFixBox.t, lastFix);
         }
     }
 
@@ -1400,14 +1409,22 @@ void InkHUD::T5MapApplet::drawPanel(const Layout &l)
     const bool stale = sel->stale || sel->old;
     std::string dist = DASH, bearing = DASH;
     if (sel->distance >= 0) {
+        // The small bold value box is 105 px (Carry) or 136 px (Console). What does not fit gives way whole
+        // before anything elides: the precision, then the degrees; the compass word stays (Panel Fit D4)
+        setFont(fontSmall);
+        const int16_t valueW = (l.console ? 158 : 127) - 22 - 1;
         // Against a last fix rather than a live one, every distance is an approximation and says so (E2)
-        dist = (own.approx() ? std::string("~") : std::string("")) + distanceString(sel->distance);
+        const std::string approx = own.approx() ? "~" : "";
+        dist = approx + distanceString(sel->distance);
         const float r = precisionRadius(sel->precision);
+        const std::string withRadius = dist + " \xB1 " + distanceString(r); // Win-1253 plus-minus: the sender's precision
         if (r > 0)
-            dist += " \xB1 " + distanceString(r); // Win-1253 plus-minus: the sender's own precision
+            dist = getTextWidth(withRadius) + 1 <= valueW ? withRadius : "~" + distanceString(sel->distance);
         char deg[16];
         snprintf(deg, sizeof(deg), "%03d\xB0 ", sel->degrees); // Win-1253 degree sign
-        bearing = (own.approx() ? "~" : "") + std::string(deg) + GeoCoord::degreesToBearing(sel->degrees);
+        bearing = approx + std::string(deg) + GeoCoord::degreesToBearing(sel->degrees);
+        if (getTextWidth(bearing) + 1 > valueW)
+            bearing = approx + GeoCoord::degreesToBearing(sel->degrees);
     }
 
     struct Fact {
@@ -1449,7 +1466,7 @@ void InkHUD::T5MapApplet::drawPanel(const Layout &l)
             printBold(left + 16 + 6, top + valueTop, value);
             setTextColor(BLACK);
         } else {
-            // Only a distance past five digits can need this (D4)
+            // Only a distance past five digits can still need this (D4)
             printBold(left + 16, top + valueTop, t5Elide(*this, facts[i].value, cellW - 22 - 1)); // The 105 px value box (D4)
         }
     }
