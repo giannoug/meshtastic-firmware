@@ -1249,7 +1249,9 @@ void InkHUD::T5SystemLayer::drawTerminalRow(int16_t top, const char *label, cons
     const int16_t pad = geometry().pad;
     setFont(fontSmall);
     printAt(pad, top, label, LEFT, TOP);
-    printBoldRight(width() - pad, top, value);
+    // A long owner name is elided short of its label, never drawn over it (2 px: faux bold)
+    const int16_t valueW = std::max<int16_t>(0, width() - 2 * pad - getTextWidth(label) - 12 - 2);
+    printBoldRight(width() - pad, top, t5Elide(*this, value, valueW));
 }
 
 // Top-aligned bold, right edge given. printThick centres, so the caller's edge

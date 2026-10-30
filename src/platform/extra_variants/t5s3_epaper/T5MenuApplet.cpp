@@ -307,7 +307,7 @@ void InkHUD::T5MenuApplet::drawConsoleTiles(const Metrics &m)
         printBold(left + 12, top + 14, t5CategoryName(i));
         setFont(fontSmall);
         setCrop(left + 12, top, TILE_W - 24, TILE_H);
-        printAt(left + 12, top + 14 + fontMedium.lineHeight() + 4, t5CategorySummary(i, true));
+        printAt(left + 12, top + 14 + fontMedium.lineHeight() + 4, t5Elide(*this, t5CategorySummary(i, true), TILE_W - 24));
         resetCrop();
         if (current)
             setTextColor(BLACK);
@@ -393,7 +393,9 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
         printBold(left, top + (console ? 8 : 12), row.label);
         setFont(fontSmall);
         setCrop(left, top, std::max<int16_t>(0, right - left), h);
-        printAt(left, top + (console ? 8 : 12) + (console ? fontMedium : fontLarge).lineHeight() + 4, row.summary);
+        // Elided short of the chevron rather than cut by the crop
+        printAt(left, top + (console ? 8 : 12) + (console ? fontMedium : fontLarge).lineHeight() + 4,
+                t5Elide(*this, row.summary, std::max<int16_t>(0, right - left - 24)));
         resetCrop();
         setFont(fontMedium);
         printAt(right, centerY, T5Applet::FWD, RIGHT, MIDDLE);
@@ -409,7 +411,7 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
         printBold(left, top + 10, row.label);
         setFont(fontSmall);
         setCrop(left, top, std::max<int16_t>(0, right - left - 24), h - 8);
-        printAt(left, top + 10 + fontMedium.lineHeight() + 2, row.hint);
+        printAt(left, top + 10 + fontMedium.lineHeight() + 2, t5Elide(*this, row.hint, std::max<int16_t>(0, right - left - 24)));
         resetCrop();
         printAt(right, top + (h - 8) / 2, T5Applet::FWD, RIGHT, MIDDLE);
         setTextColor(BLACK);
@@ -426,11 +428,14 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
         return;
     }
 
-    case T5RowKind::INFO:
+    case T5RowKind::INFO: {
         setFont(fontSmall);
         printAt(left, top + (h - fontSmall.lineHeight()) / 2, row.label);
-        printBold(right, top + (h - fontSmall.lineHeight()) / 2, row.value, RIGHT);
+        // The value gives way to its label: a long name is elided, never drawn over it
+        const int16_t valueW = std::max<int16_t>(0, right - left - getTextWidth(row.label) - 12 - 2);
+        printBold(right, top + (h - fontSmall.lineHeight()) / 2, t5Elide(*this, row.value, valueW), RIGHT);
         return;
+    }
 
     case T5RowKind::FACTS: {
         // Label above value in each cell; neither is a touch target, so there is no chevron and no rule
@@ -443,8 +448,9 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
             setFont(fontSmall);
             printAt(cl, ct + 6, row.facts[i].first);
             setFont(fontMedium);
-            setCrop(cl, ct, std::max<int16_t>(0, cellW - 12), CELL_H);
-            printBold(cl, ct + 6 + fontSmall.lineHeight() + 2, row.facts[i].second);
+            setCrop(cl, ct, std::max<int16_t>(0, cellW - 12), CELL_H + 6); // Descenders may pass the cell edge
+            printBold(cl, ct + 6 + fontSmall.lineHeight() + 2,
+                      t5Elide(*this, row.facts[i].second, std::max<int16_t>(0, cellW - 14)));
             resetCrop();
         }
         return;
@@ -492,7 +498,7 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
         if (!console && (notSaved || !row.hint.empty())) {
             setFont(fontSmall);
             setCrop(left, top, std::max<int16_t>(0, right - left), h);
-            printAt(left, top + 12 + fontMedium.lineHeight() + 2, notSaved ? RETRY : row.hint);
+            printAt(left, top + 12 + fontMedium.lineHeight() + 2, t5Elide(*this, notSaved ? RETRY : row.hint, right - left));
             resetCrop();
         }
         drawLine(m.paneLeft, top + h - 1, m.paneRight - 1, top + h - 1, BLACK);
@@ -529,7 +535,7 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
         if (!console && (notSaved || !row.hint.empty())) {
             setFont(fontSmall);
             setCrop(left, top, std::max<int16_t>(0, right - left), h);
-            printAt(left, top + 12 + fontMedium.lineHeight() + 2, notSaved ? RETRY : row.hint);
+            printAt(left, top + 12 + fontMedium.lineHeight() + 2, t5Elide(*this, notSaved ? RETRY : row.hint, right - left));
             resetCrop();
         }
         drawLine(m.paneLeft, top + h - 1, m.paneRight - 1, top + h - 1, BLACK);
@@ -562,9 +568,14 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
             setTextColor(BLACK);
             valueRight = bl - 12;
         } else if (!row.value.empty()) {
+            setFont(fontSmall);
+            const int16_t tagW = row.tag ? getTextWidth(row.tag) + 16 : 0;
             setFont(fontMedium);
-            printBold(valueRight, labelTop, row.value, RIGHT);
-            valueRight -= getTextWidth(row.value) + 12;
+            // The label keeps its width; a value too long for what is left is elided (2 px: faux bold)
+            const int16_t room = valueRight - left - (getTextWidth(row.label) + 2 + 12) - tagW;
+            const std::string value = t5Elide(*this, row.value, std::max<int16_t>(0, room - 2));
+            printBold(valueRight, labelTop, value, RIGHT);
+            valueRight -= getTextWidth(value) + 12;
         }
 
         if (row.tag) {
@@ -581,7 +592,7 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
         setFont(fontSmall);
         if (!console && (notSaved || !row.hint.empty())) {
             setCrop(left, top, std::max<int16_t>(0, right - left), h);
-            printAt(left, top + 12 + fontMedium.lineHeight() + 2, notSaved ? RETRY : row.hint);
+            printAt(left, top + 12 + fontMedium.lineHeight() + 2, t5Elide(*this, notSaved ? RETRY : row.hint, right - left));
             resetCrop();
         }
         drawLine(m.paneLeft, top + h - 1, m.paneRight - 1, top + h - 1, BLACK);

@@ -715,7 +715,8 @@ void InkHUD::T5ComposeTask::drawPickRow(int16_t left, int16_t top, uint16_t w, c
     setFont(Applet::fontMedium);
     const std::string tag = t5ConvoTag(c);
     printBold(left + T5Applet::MARGIN, top + (console ? 4 : 8), tag);
-    const int16_t column = console ? left + T5Applet::MARGIN + getTextWidth(tag) + 12 : left + 112;
+    const int16_t tagRight = left + T5Applet::MARGIN + getTextWidth(tag) + 2 + 12; // 2 px of faux bold
+    const int16_t column = console ? tagRight : std::max<int16_t>(left + 112, tagRight);
 
     setFont(Applet::fontSmall);
     printAt(column, top + (console ? 12 : 20), t5Elide(*this, t5ConvoTitle(c), std::max<int16_t>(0, right - 40 - column)));

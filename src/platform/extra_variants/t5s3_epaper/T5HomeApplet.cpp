@@ -531,7 +531,9 @@ void InkHUD::T5HomeApplet::renderConsole(const Status &s)
         const int16_t top = 105 + i * rowH;
         const T5NodesApplet::Row &row = s.heard[i];
         printBold(heardLeft, top + 2, row.shortName);
-        printAt(heardLeft + heardW, top + 2, join(row.distance, row.hops < 0 ? "" : hopsString(row.hops)), RIGHT);
+        const int16_t infoW = heardW - getTextWidth(row.shortName) - 2 - 12; // Stops short of the bold short name
+        printAt(heardLeft + heardW, top + 2,
+                t5Elide(*this, join(row.distance, row.hops < 0 ? "" : hopsString(row.hops)), std::max<int16_t>(0, infoW)), RIGHT);
         drawLine(heardLeft, top + rowH - 1, heardLeft + heardW - 1, top + rowH - 1, BLACK);
     }
 
