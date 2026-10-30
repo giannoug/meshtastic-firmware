@@ -210,14 +210,14 @@ static void renderCoreScreens()
     if (std::string(dataset) == "messy") {
         both("nodedetail-long", [] { InkHUD::T5NodeDetailApplet::open(MESSY_LONG); });
         both("nodedetail-greek", [] { InkHUD::T5NodeDetailApplet::open(MESSY_GREEK); });
-        both("convo-dm-long", [] { InkHUD::T5ConversationApplet::open(Convo::forPeer(MESSY_LONG)); });
+        both("convo-dm-long", [] { InkHUD::T5MessagesApplet::open(Convo::forPeer(MESSY_LONG)); });
     }
 
     both("messages", [] { InkHUD::T5MessagesApplet::open(); });
     both("messages-dm", [] { InkHUD::T5MessagesApplet::open(Convo::forPeer(KB7X)); });
-    both("convo-dm", [] { InkHUD::T5ConversationApplet::open(Convo::forPeer(KB7X)); });
-    both("convo-ch0", [] { InkHUD::T5ConversationApplet::open(Convo::forChannel(0)); });
-    both("convo-ch1", [] { InkHUD::T5ConversationApplet::open(Convo::forChannel(1)); });
+    both("convo-dm", [] { InkHUD::T5MessagesApplet::open(Convo::forPeer(KB7X)); });
+    both("convo-ch0", [] { InkHUD::T5MessagesApplet::open(Convo::forChannel(0)); });
+    both("convo-ch1", [] { InkHUD::T5MessagesApplet::open(Convo::forChannel(1)); });
     both("compose-reply", [] {
         resetUi();
         InkHUD::T5ComposeTask::openReply(Convo::forPeer(KB7X));
