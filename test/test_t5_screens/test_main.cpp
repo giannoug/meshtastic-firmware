@@ -134,7 +134,7 @@ static void test_home_renders_in_both_modes()
 
 using Convo = InkHUD::T5MessageModel::Convo;
 static constexpr NodeNum KB7X = 0x7c19ab40, UNKNOWN_1C22 = 0x3fa91c22, SAMK = 0x77aa1001, WX01 = 0x9a01c0de;
-static constexpr NodeNum MESSY_LONG = 0x10000001, MESSY_GREEK = 0x10000002;
+static constexpr NodeNum MESSY_LONG = 0x10000001, MESSY_GREEK = 0x10000002, OUR_NUM_FIXTURE = 0xa4f2c1b0;
 
 // Close whatever task layer the previous state left open, one layer at a time like the Home key
 static void resetUi()
@@ -189,6 +189,14 @@ static void appsTool(const char *tool)
 
 static void renderCoreScreens()
 {
+    // A message in a script the font has (Greek) must reach the banner decoded, not as raw UTF-8
+    both(
+        "banner-greek",
+        [] {
+            show("Home");
+            fixtureText(MESSY_GREEK, OUR_NUM_FIXTURE, 0, 0, "Καλησπέρα! Ο δρόμος είναι κλειστός μετά το καταφύγιο.");
+        },
+        true);
     both("banner-home", [] { show("Home"); }, true);
     both("home", [] { show("Home"); });
     both("nodes", [] { show("Nodes"); });

@@ -201,7 +201,7 @@ void seedMessy()
     channels2("Ομάδα Διάσωσης Βουνού"); // Greek, longer than 11 chars, multi-byte
 
     std::vector<FixtureNode> nodes = {
-        {0x10000001, "Mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm", "MMMM", 12345000, 135, -20.5f, 7, 59, 0, true},
+        {0x10000001, "Mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm", "MMMM", 12345000, 135, -20.5f, 7, 0, 0, true},
         {0x10000002, "Αθηνά Ορεινή Ομάδα Διάσωσης Ολύμπου 2", "ΑΘΗΝ", 999, 359, 12.75f, 0, 10, 101, true},
         {0x10000003, "Base \xF0\x9F\x93\xA1 Camp \xF0\x9F\x8F\x94", "\xF0\x9F\x93\xA1", 48, 1, 0.0f, 0, 5, 100, true},
         {0x10000004, "\xE5\xB1\xB1\xE9\xA1\xB6\xE4\xB8\xAD\xE7\xBB\xA7\xE7\xAB\x99", "\xE5\xB1\xB1", 4500, 180, -1.25f, 1,
@@ -219,7 +219,7 @@ void seedMessy()
                          (float)(i * 37 % 360),
                          (float)(i % 25) - 12,
                          (int8_t)(i % 8),
-                         (uint32_t)(i * 97),
+                         (uint32_t)(i * 97 + 30),
                          (int16_t)(i % 102),
                          false};
         nodes.push_back(n);
@@ -243,5 +243,8 @@ void seedMessy()
     }
     for (int i = 0; i < 30; i++)
         fixtureText(0x20000000u + (uint32_t)i, OUR_NUM, 0, 7200 - i * 120, "DM from an overflow node");
+    // The widest tags' DMs arrive last, so they are the newest conversations rather than past the list's cap
+    fixtureText(0x10000005, OUR_NUM, 0, 2, "Widest tag there is, and a preview long enough to reach the badge");
+    fixtureText(0x10000001, OUR_NUM, 0, 1, "Another wide tag with a preview that runs all the way across the row");
 }
 #endif
