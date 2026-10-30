@@ -351,7 +351,7 @@ void InkHUD::T5AppsApplet::drawHeader(const std::string &title, const std::strin
     }
     setFont(fontSmall);
     setCrop(MARGIN, 0, width() - 2 * MARGIN, 99);
-    printAt(MARGIN, 66, context);
+    printAt(MARGIN, 66, t5Elide(*this, context, width() - 2 * MARGIN));
     resetCrop();
     drawLine(0, 99, width() - 1, 99, BLACK);
 }
