@@ -162,6 +162,22 @@ uint16_t InkHUD::T5MessagesApplet::itemHeight(const Item &item)
     }
 }
 
+// Mirrors drawBadge's choice of badge, in the small font it draws in
+uint16_t InkHUD::T5MessagesApplet::badgeWidth(const Convo &c, bool suppress)
+{
+    T5MessageModel *model = T5MessageModel::get();
+    if (!model || suppress)
+        return 0;
+    setFont(fontSmall);
+    if (const uint16_t unread = model->unread(c))
+        return getTextWidth((unread > 99 ? std::string("99+") : to_string(unread)) + " NEW") + 16;
+    const StoredMessage *m = model->newest(c);
+    const T5MessageModel::Outgoing *o = m ? model->outgoing(m) : nullptr;
+    if (o && (o->state == T5MessageModel::State::FAILED || o->state == T5MessageModel::State::NOT_HEARD))
+        return getTextWidth(o->state == T5MessageModel::State::FAILED ? "FAILED" : "NOT HEARD") + 14;
+    return model->draft(c) ? getTextWidth("DRAFT") + 14 : 0;
+}
+
 // n NEW inverted, then a FAILED / NOT HEARD outline, then a dashed DRAFT - one
 // slot, in that order
 void InkHUD::T5MessagesApplet::drawBadge(int16_t right, int16_t top, const Convo &c, bool suppress)
@@ -232,7 +248,10 @@ void InkHUD::T5MessagesApplet::drawRow(int16_t top, uint16_t w, const Convo &c, 
         const int16_t timeW = time.empty() ? 0 : getTextWidth(time) + 12;
         printAt(right - 14, top + 8, time, RIGHT);
         printAt(titleLeft, top + 12, t5Elide(*this, t5ConvoTitle(c), std::max<int16_t>(0, right - 14 - timeW - titleLeft)));
-        printAt(MARGIN, top + 42, t5Elide(*this, t5ConvoPreview(c), 240));
+        const uint16_t badgeW = badgeWidth(c, selected);
+        setFont(fontSmall);
+        const int16_t previewW = std::min<int16_t>(240, right - 14 - (badgeW ? badgeW + 12 : 0) - MARGIN);
+        printAt(MARGIN, top + 42, t5Elide(*this, t5ConvoPreview(c), std::max<int16_t>(0, previewW)));
         if (selected)
             setTextColor(BLACK); // The selected row's badge is suppressed while its
                                  // thread is shown

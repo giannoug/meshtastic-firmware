@@ -64,6 +64,7 @@ class T5MessagesApplet : public T5ThreadApplet, public T5Redrawable
     void drawHeader(uint16_t unread, uint16_t conversations, uint8_t page, uint8_t pages);
     void drawRow(int16_t top, uint16_t w, const Convo &c, bool console, bool selected);
     void drawBadge(int16_t right, int16_t top, const Convo &c, bool suppress);
+    uint16_t badgeWidth(const Convo &c, bool suppress); // What drawBadge will take, so text can stop short of it
     void drawEmptyDMBox(int16_t left, int16_t top, uint16_t w);
     void drawPager(uint8_t page, uint8_t pages);
 
