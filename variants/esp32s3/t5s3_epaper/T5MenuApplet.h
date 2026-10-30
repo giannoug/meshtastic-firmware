@@ -106,6 +106,7 @@ class T5MenuApplet : public T5Applet, public concurrency::OSThread
     // Both return their left edge, so the label beside them knows where it has to stop
     int16_t drawChip(int16_t right, int16_t centerY, const char *label, bool filled);
     int16_t drawReason(int16_t right, int16_t centerY, const std::string &reason);
+    int16_t choiceCellW(const T5Row &row); // One cell of a CHOICE row, shared by drawing and hit testing
 
     // Rows on screen and where each one sits, rebuilt on every render so a tap can only ever hit
     // what the user is actually looking at

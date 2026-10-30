@@ -507,7 +507,7 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
 
     case T5RowKind::CHOICE: {
         // Joined cells, the selected one inverted
-        const int16_t cellW = console ? 112 : 108, cellH = console ? 44 : 48;
+        const int16_t cellW = choiceCellW(row), cellH = console ? 44 : 48;
         const int16_t cells = (int16_t)row.options.size();
         const int16_t groupLeft = right - cells * cellW;
         const int16_t labelTop = row.hint.empty() || console ? centerY - fontMedium.lineHeight() / 2 : top + 12;
@@ -759,7 +759,7 @@ bool InkHUD::T5MenuApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
         const T5Row &row = rowsShown[i];
         int16_t cell = -1;
         if (row.kind == T5RowKind::CHOICE && row.available) {
-            const int16_t cellW = t5IsConsole(*this) ? 112 : 108;
+            const int16_t cellW = choiceCellW(row);
             const int16_t groupLeft = m.paneRight - T5_MARGIN - (int16_t)row.options.size() * cellW;
             if (tx >= groupLeft)
                 cell = (tx - groupLeft) / cellW;
@@ -769,6 +769,16 @@ bool InkHUD::T5MenuApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
     }
 
     return true; // The menu consumes every tap inside it
+}
+
+// Never narrower than the widest option and its padding, in the small font the cells use
+int16_t InkHUD::T5MenuApplet::choiceCellW(const T5Row &row)
+{
+    setFont(fontSmall);
+    int16_t cellW = t5IsConsole(*this) ? 112 : 108;
+    for (const std::string &option : row.options)
+        cellW = std::max<int16_t>(cellW, getTextWidth(option) + 2 + 16); // 2 px of faux bold
+    return cellW;
 }
 
 void InkHUD::T5MenuApplet::applyNow(T5Act which, int32_t value)

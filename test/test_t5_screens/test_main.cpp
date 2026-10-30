@@ -337,6 +337,32 @@ static void renderCoreScreens()
     resetUi();
 }
 
+// The CARRY / CONSOLE cells are sized from their labels; a tap on the drawn CARRY label must still
+// land in the CARRY cell, which only holds if hit testing uses the same widths as drawing
+static void test_mode_cells_hit_what_they_draw()
+{
+    t5SetMode(T5Mode::CONSOLE);
+    menuPage("DISPLAY");
+    drawLogStart();
+    renderNow();
+    drawLogStop();
+    const DrawRec *label = nullptr, *cell = nullptr;
+    for (const DrawRec &r : drawLog())
+        if (r.kind == DrawRec::TEXT && r.text == "CARRY")
+            label = &r;
+    TEST_ASSERT_NOT_NULL(label);
+    const int16_t cx = label->x + label->w / 2, cy = label->y + label->h / 2;
+    for (const DrawRec &r : drawLog())
+        if ((r.kind == DrawRec::RECT || r.kind == DrawRec::FILL) && r.x <= cx && cx < r.x + r.w && r.y <= cy && cy < r.y + r.h &&
+            r.w < 200)
+            cell = &r;
+    TEST_ASSERT_NOT_NULL(cell);
+    // Just inside the cell's left edge: where a mismatch between drawn and hit-tested widths shows
+    InkHUD::InkHUD::getInstance()->touchTap(cell->x + 4, cy);
+    TEST_ASSERT_EQUAL(static_cast<int>(T5Mode::CARRY), static_cast<int>(t5CurrentMode()));
+    resetUi();
+}
+
 // Terminal images ignore all input from then on, so they go last
 static void test_terminal_screens()
 {
@@ -377,6 +403,7 @@ void setup()
     RUN_TEST(test_home_renders_in_both_modes);
     RUN_TEST(test_canonical_screens);
     RUN_TEST(test_messy_screens);
+    RUN_TEST(test_mode_cells_hit_what_they_draw);
     RUN_TEST(test_terminal_screens);
     exit(UNITY_END());
 }
