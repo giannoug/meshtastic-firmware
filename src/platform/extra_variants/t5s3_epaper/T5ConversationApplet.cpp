@@ -115,7 +115,7 @@ void InkHUD::T5ConversationApplet::onRender(bool full)
         line2Right = right - tw - 12;
     }
     setCrop(MARGIN, 64, std::max<int16_t>(0, line2Right - MARGIN), 35);
-    printAt(MARGIN, 70, threadSubtitle(c));
+    printAt(MARGIN, 70, t5Elide(*this, threadSubtitle(c), std::max<int16_t>(0, line2Right - MARGIN)));
     resetCrop();
     drawLine(0, HEADER_H, width() - 1, HEADER_H, BLACK);
 

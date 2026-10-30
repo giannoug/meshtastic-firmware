@@ -322,8 +322,9 @@ void InkHUD::T5AppsApplet::drawHeader(const std::string &title, const std::strin
             x += getTextWidth(title) + 12;
         }
         setFont(fontSmall);
-        setCrop(x, 0, std::max<int16_t>(0, statusLeft - 12 - x), CONSOLE_BAND);
-        printAt(x, (CONSOLE_BAND - fontSmall.lineHeight()) / 2, context);
+        const int16_t contextW = std::max<int16_t>(0, statusLeft - 12 - x);
+        setCrop(x, 0, contextW, CONSOLE_BAND);
+        printAt(x, (CONSOLE_BAND - fontSmall.lineHeight()) / 2, t5Elide(*this, context, contextW));
         resetCrop();
         drawLine(0, CONSOLE_BAND, width() - 1, CONSOLE_BAND, BLACK);
         return;

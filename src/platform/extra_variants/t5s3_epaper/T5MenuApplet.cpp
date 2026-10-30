@@ -285,7 +285,7 @@ void InkHUD::T5MenuApplet::drawHeader(const Metrics &m)
 
     setFont(fontSmall);
     setCrop(T5_MARGIN, 0, std::max<int16_t>(0, width() - 2 * T5_MARGIN), 99);
-    printAt(T5_MARGIN, 66, context);
+    printAt(T5_MARGIN, 66, t5Elide(*this, context, std::max<int16_t>(0, width() - 2 * T5_MARGIN)));
     resetCrop();
     drawLine(0, 99, width() - 1, 99, BLACK);
 }

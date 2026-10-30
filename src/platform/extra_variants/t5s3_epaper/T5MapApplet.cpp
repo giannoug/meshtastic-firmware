@@ -880,7 +880,7 @@ void InkHUD::T5MapApplet::drawHeaderBand(const Layout &l)
     // than running under it (Map 01)
     const int16_t lineTop = l.console ? 22 : 66;
     setCrop(lineLeft, 0, std::max<int16_t>(0, gpsLeft - 12 - lineLeft), rule);
-    printAt(lineLeft, lineTop, countsLine());
+    printAt(lineLeft, lineTop, t5Elide(*this, countsLine(), std::max<int16_t>(0, gpsLeft - 12 - lineLeft)));
     resetCrop();
 
     drawLine(0, rule, width() - 1, rule, BLACK);

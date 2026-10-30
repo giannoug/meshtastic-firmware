@@ -336,10 +336,11 @@ void InkHUD::T5HomeApplet::drawConversation(int16_t left, int16_t top, uint16_t 
         setTextColor(BLACK);
     }
 
-    setCrop(left, top, w - (unseen ? pillW + 8 : 0), console ? 88 : 84);
-    printAt(left, top + (console ? 50 : 54), subtitle);
+    const int16_t textW = w - (unseen ? pillW + 8 : 0);
+    setCrop(left, top, textW, console ? 88 : 84);
+    printAt(left, top + (console ? 50 : 54), t5Elide(*this, subtitle, textW));
     setFont(fontMedium);
-    printBold(left, top + (console ? 8 : 12), title);
+    printBold(left, top + (console ? 8 : 12), t5Elide(*this, title, textW > 2 ? textW - 2 : 0)); // 2 px of faux bold
     resetCrop();
 }
 
