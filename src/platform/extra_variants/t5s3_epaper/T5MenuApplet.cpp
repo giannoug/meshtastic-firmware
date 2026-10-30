@@ -476,6 +476,11 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
         setFont(fontMedium);
         const int16_t labelTop = row.hint.empty() || console ? centerY - fontMedium.lineHeight() / 2 : top + 12;
         int16_t labelRight = right - (console ? 72 : 76) - 12;
+        if (!notSaved && !row.available) {
+            // The reason box replaces the ON / OFF chip and is wider: the label gives way to it
+            setFont(fontSmall);
+            labelRight = std::min<int16_t>(labelRight, right - (getTextWidth(row.reason) + 24) - 12);
+        }
         if (row.tag) {
             setFont(fontSmall);
             const int16_t tagW = getTextWidth(row.tag) + 16;
@@ -484,7 +489,7 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
         }
         setFont(fontMedium);
         setCrop(left, top, std::max<int16_t>(0, labelRight - left), h);
-        printBold(left, labelTop, row.label);
+        printBold(left, labelTop, t5Elide(*this, row.label, std::max<int16_t>(0, labelRight - left - 1))); // 1 px bold
         resetCrop();
 
         const int16_t controlY = row.hint.empty() || console ? centerY : top + 12 + fontMedium.lineHeight() / 2;
