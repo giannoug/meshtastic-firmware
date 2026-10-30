@@ -59,16 +59,6 @@ void InkHUD::T5ConversationApplet::onMessagingChanged()
         requestUpdate();
 }
 
-std::string InkHUD::T5ConversationApplet::replyLabel()
-{
-    T5MessageModel *model = T5MessageModel::get();
-    if (model && model->draft(thread.convo))
-        return std::string("REPLY ") + SEP + " DRAFT"; // The frozen draft form of the bar
-    std::string target = thread.convo.isChannel() ? t5ConvoTitle(thread.convo) : t5ConvoTag(thread.convo);
-    std::transform(target.begin(), target.end(), target.begin(), [](unsigned char c) { return toupper(c); });
-    return "REPLY TO " + target;
-}
-
 void InkHUD::T5ConversationApplet::onRender(bool full)
 {
     (void)full;
@@ -125,7 +115,8 @@ void InkHUD::T5ConversationApplet::onRender(bool full)
     // REPLY bar
     drawLine(0, REPLY_TOP, width() - 1, REPLY_TOP, BLACK);
     setFont(fontMedium);
-    printBold(width() / 2, REPLY_TOP + (navTop() - 1 - REPLY_TOP - fontMedium.lineHeight()) / 2, replyLabel(), CENTER);
+    printBold(width() / 2, REPLY_TOP + (navTop() - 1 - REPLY_TOP - fontMedium.lineHeight()) / 2, replyLabel(thread.convo),
+              CENTER);
 
     drawNav();
 }

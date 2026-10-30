@@ -239,19 +239,19 @@ void InkHUD::T5MessagesApplet::drawRow(int16_t top, uint16_t w, const Convo &c, 
     const std::string time = m ? t5ListTime(m->timestamp, m->isBootRelative) : "";
 
     if (console) {
-        // Tag and title share the first line; the preview sits under them
-        setFont(fontMedium);
-        const std::string tag = t5ConvoTag(c);
-        printBold(MARGIN, top + 4, tag);
-        const int16_t titleLeft = MARGIN + getTextWidth(tag) + 10;
+        // Tag, title and time share baseline top+30, the preview sits at top+60; the tag is small bold and
+        // never elided (Panel Fit D13). Small caps end 19 px below the print top
         setFont(fontSmall);
+        const std::string tag = t5ConvoTag(c);
+        printBold(MARGIN, top + 30 - 19, tag);
+        const int16_t titleLeft = MARGIN + getTextWidth(tag) + 1 + 10; // 1 px bold
         const int16_t timeW = time.empty() ? 0 : getTextWidth(time) + 12;
-        printAt(right - 14, top + 8, time, RIGHT);
-        printAt(titleLeft, top + 12, t5Elide(*this, t5ConvoTitle(c), std::max<int16_t>(0, right - 14 - timeW - titleLeft)));
+        printAt(right - 14, top + 30 - 19, time, RIGHT);
+        printAt(titleLeft, top + 30 - 19, t5Elide(*this, t5ConvoTitle(c), std::max<int16_t>(0, right - 14 - timeW - titleLeft)));
         const uint16_t badgeW = badgeWidth(c, selected);
         setFont(fontSmall);
         const int16_t previewW = std::min<int16_t>(240, right - 14 - (badgeW ? badgeW + 12 : 0) - MARGIN);
-        printAt(MARGIN, top + 42, t5Elide(*this, t5ConvoPreview(c), std::max<int16_t>(0, previewW)));
+        printAt(MARGIN, top + 60 - 19, t5Elide(*this, t5ConvoPreview(c), std::max<int16_t>(0, previewW)));
         if (selected)
             setTextColor(BLACK); // The selected row's badge is suppressed while its
                                  // thread is shown
@@ -576,11 +576,9 @@ void InkHUD::T5MessagesApplet::renderConsole()
         drawPagingStrip(thread, CONSOLE_PANE_LEFT, CONSOLE_CONTENT_TOP, paneW, CONSOLE_STRIP_H);
 
         drawLine(CONSOLE_PANE_LEFT, CONSOLE_ACTION_TOP, width() - 1, CONSOLE_ACTION_TOP, BLACK);
-        setFont(fontMedium);
-        std::string label = model->draft(model->selected) ? std::string("REPLY ") + SEP + " DRAFT" : "REPLY";
-        printBold(CONSOLE_PANE_LEFT + paneW / 2,
-                  CONSOLE_ACTION_TOP + (CONSOLE_CONTENT_BOTTOM - CONSOLE_ACTION_TOP - fontMedium.lineHeight()) / 2, label,
-                  CENTER);
+        // Small bold, centred in the pane at baseline 397 (Panel Fit D13)
+        setFont(fontSmall);
+        printBold(CONSOLE_PANE_LEFT + paneW / 2, 397 - 19, replyLabel(model->selected), CENTER);
     } else {
         setFont(fontMedium);
         printBold(CONSOLE_PANE_LEFT + 24, 150, NO_DMS_TITLE);

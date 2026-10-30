@@ -50,8 +50,6 @@ class T5ConversationApplet : public T5ThreadApplet, public T5Redrawable
     static constexpr int16_t STRIP_TOP = 100, STRIP_H = 56, STRIP_TOUCH_BOTTOM = 163;
     static constexpr int16_t THREAD_TOP = 164, THREAD_BOTTOM = 744;
     static constexpr int16_t REPLY_TOP = 752;
-
-    std::string replyLabel();
 };
 
 } // namespace NicheGraphics::InkHUD

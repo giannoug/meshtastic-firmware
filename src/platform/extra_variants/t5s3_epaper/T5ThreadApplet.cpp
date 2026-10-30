@@ -5,6 +5,7 @@
 #include "gps/RTC.h"
 #include "mesh/Channels.h"
 #include "mesh/NodeDB.h"
+#include <algorithm>
 
 using namespace NicheGraphics;
 
@@ -30,6 +31,16 @@ const char *stateWord(InkHUD::T5MessageModel::State s)
     return "";
 }
 } // namespace
+
+std::string InkHUD::T5ThreadApplet::replyLabel(const Convo &c)
+{
+    T5MessageModel *model = T5MessageModel::get();
+    if (model && model->draft(c))
+        return std::string("REPLY ") + SEP + " DRAFT"; // The frozen draft form of the bar
+    std::string target = c.isChannel() ? t5ConvoTitle(c) : t5ConvoTag(c);
+    std::transform(target.begin(), target.end(), target.begin(), [](unsigned char ch) { return toupper(ch); });
+    return "REPLY TO " + target;
+}
 
 void InkHUD::T5ThreadApplet::enter(Thread &t, const Convo &c)
 {

@@ -68,6 +68,7 @@ class T5ThreadApplet : public T5Applet
     // Header line 2 of a conversation: what this destination is, and the frozen
     // NO CLOCK suffix
     std::string threadSubtitle(const Convo &c);
+    std::string replyLabel(const Convo &c); // "REPLY TO <target>", or the draft form, in both modes (D13)
 
   private:
     // One message, measured and drawn the same way, so a page's capacity is exact
