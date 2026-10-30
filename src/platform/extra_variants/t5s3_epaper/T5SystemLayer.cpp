@@ -1112,8 +1112,9 @@ void InkHUD::T5SystemLayer::drawCard()
 
         if (!console) {
             setFont(fontSmall);
-            printWrapped(g.pad, y, bodyW, "Type this PIN on the phone that is pairing.");
-            y += fontSmall.lineHeight() + 16;
+            const char *ask = "Type this PIN on the phone that is pairing.";
+            printWrapped(g.pad, y, bodyW, ask);
+            y += (int16_t)getWrappedTextHeight(g.pad, bodyW, ask) + 16;
         }
 
         // The PIN, grouped 3 + 3. fontLarge is the largest face loaded on T5, so it
@@ -1125,11 +1126,11 @@ void InkHUD::T5SystemLayer::drawCard()
         y += fontLarge.lineHeight() + (console ? 8 : 16);
 
         setFont(fontSmall);
-        printWrapped(g.pad, y, bodyW,
-                     console ? "Closes by itself when pairing finishes, or after 30 seconds."
-                             : "This closes by itself when pairing finishes, or after 30 "
-                               "seconds.");
-        y += fontSmall.lineHeight() + 12;
+        const char *closes = console ? "Closes by itself when pairing finishes, or after 30 seconds."
+                                     : "This closes by itself when pairing finishes, or after 30 "
+                                       "seconds.";
+        printWrapped(g.pad, y, bodyW, closes);
+        y += (int16_t)getWrappedTextHeight(g.pad, bodyW, closes) + 12; // It wraps to two lines in Carry
 
         // The stack reports no peer name, so the row says so rather than inventing
         // one.
