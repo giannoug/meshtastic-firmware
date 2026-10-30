@@ -878,7 +878,7 @@ void InkHUD::T5MapApplet::drawHeaderBand(const Layout &l)
         lineLeft = l.console ? std::max<int16_t>(240, mapLeft + getTextWidth("MAP") + 16) : MARGIN;
     } else {
         printBold(MARGIN, l.console ? 12 : 14, "MAP");
-        lineLeft = l.console ? 110 : MARGIN;
+        lineLeft = l.console ? 139 : MARGIN; // Clear of MAP in large bold (Panel Fit K1)
     }
 
     setFont(fontSmall);
@@ -1276,31 +1276,17 @@ void InkHUD::T5MapApplet::drawMapBand(const Layout &l)
         usOnScreen = inBand(l, ux, uy, 13); // Half of the 26 px ring
     }
 
-    // The one labelled US state: GPS on, no lock, and a position we once had (E2). Its box is known now,
-    // so the ring labels can avoid it
-    std::string lastFix;
-    Rect lastFixBox{};
-    if (own.valid() && usOnScreen && own.kind == OWN_LAST_FIX) {
-        const std::string clock = t5ListTime(own.fixTime, false);
-        lastFix = clock.empty() ? "LAST FIX" : "LAST FIX " + clock;
-        setFont(fontSmall);
-        lastFixBox = Rect{(int16_t)(ux + 18), (int16_t)(uy - fontSmall.lineHeight() / 2), (uint16_t)(getTextWidth(lastFix) + 8),
-                          (uint16_t)fontSmall.lineHeight()};
-        if (lastFixBox.l + (int16_t)lastFixBox.w > l.mapW)
-            lastFix.clear();
-    }
-
+    // The north marker and its arrow: nothing placed later may cover them
     std::vector<Rect> taken;
+    taken.push_back(Rect{(int16_t)(l.mapW - 12 - getTextWidth("N") - 20), (int16_t)(l.mapTop + 10),
+                         (uint16_t)(getTextWidth("N") + 20), (uint16_t)fontSmall.lineHeight()});
+
     if (usOnScreen)
         drawRings(l, ux, uy);
     else
         drawScaleBar(l); // The rings went with us, so a scale bar takes over (E1, E8)
 
     drawMarkers(l, taken);
-    if (!lastFix.empty())
-        taken.push_back(lastFixBox);
-    if (usOnScreen)
-        labelRings(l, ux, uy, taken);
 
     // Off-screen awareness, for the selection and for us alone
     const Plot *sel = find(selected);
@@ -1309,13 +1295,37 @@ void InkHUD::T5MapApplet::drawMapBand(const Layout &l)
         const int16_t deg = (lround(GeoCoord::toDegrees(b)) + 360) % 360;
         const float away = GeoCoord::latLongToMeter(sel->lat, sel->lon, centreLat, centreLon);
         drawEdgeTag(l, t5NodeTag(sel->num), distanceString(away), deg, selTag);
+        taken.push_back(selTag);
     }
     if (own.valid() && !usOnScreen) {
         const float b = GeoCoord::bearing(centreLat, centreLon, own.lat, own.lon);
         const int16_t deg = (lround(GeoCoord::toDegrees(b)) + 360) % 360;
         const float away = GeoCoord::latLongToMeter(own.lat, own.lon, centreLat, centreLon);
         drawEdgeTag(l, "YOU", distanceString(away), deg, usTag);
+        taken.push_back(usTag);
     }
+
+    // The one labelled US state: GPS on, no lock, and a position we once had (E2). It sits right of US, or
+    // left, wherever no marker is; with both covered it is skipped, as the header line already says LAST FIX
+    std::string lastFix;
+    Rect lastFixBox{};
+    if (own.valid() && usOnScreen && own.kind == OWN_LAST_FIX) {
+        const std::string clock = t5ListTime(own.fixTime, false);
+        const std::string text = clock.empty() ? "LAST FIX" : "LAST FIX " + clock;
+        setFont(fontSmall);
+        const uint16_t w = getTextWidth(text) + 8, h = fontSmall.lineHeight();
+        for (const int16_t left : {(int16_t)(ux + 18), (int16_t)(ux - 18 - (int16_t)w)}) {
+            const Rect box{left, (int16_t)(uy - h / 2), w, h};
+            if (box.l >= 0 && box.l + (int16_t)box.w <= l.mapW && place(taken, box)) {
+                lastFix = text;
+                lastFixBox = box;
+                break;
+            }
+        }
+    }
+
+    if (usOnScreen)
+        labelRings(l, ux, uy, taken);
 
     // US last, as the shared base does
     if (own.valid() && usOnScreen) {
