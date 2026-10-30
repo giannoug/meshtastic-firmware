@@ -860,10 +860,12 @@ void InkHUD::T5MapApplet::drawHeaderBand(const Layout &l)
     if (backNode) {
         // Deep link: the chip takes the title position and MAP moves beside it. The nav still inverts
         // MAP - the map is a top-level place, not a child screen (Map 07)
-        printBold(MARGIN, l.console ? 12 : 14, std::string(BACK) + " " + t5NodeTag(backNode));
+        const std::string crumb = std::string(BACK) + " " + t5NodeTag(backNode);
+        printBold(MARGIN, l.console ? 12 : 14, crumb);
+        const int16_t mapLeft = std::max<int16_t>(150, MARGIN + getTextWidth(crumb) + 12); // Crumb in its own font
         setFont(fontMedium);
-        printAt(150, l.console ? 16 : 22, "MAP");
-        lineLeft = l.console ? 240 : MARGIN;
+        printAt(mapLeft, l.console ? 16 : 22, "MAP");
+        lineLeft = l.console ? std::max<int16_t>(240, mapLeft + getTextWidth("MAP") + 16) : MARGIN;
     } else {
         printBold(MARGIN, l.console ? 12 : 14, "MAP");
         lineLeft = l.console ? 110 : MARGIN;

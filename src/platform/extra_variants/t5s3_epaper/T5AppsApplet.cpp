@@ -338,14 +338,14 @@ void InkHUD::T5AppsApplet::drawHeader(const std::string &title, const std::strin
     printBold(MARGIN, 14, head);
     resetCrop();
     if (back) {
-        // Carry has room for the crumb and the tool name on one line
-        setFont(fontMedium);
-        const int16_t nameLeft = MARGIN + getTextWidth(std::string(BACK) + " " + back) + 12;
-        setFont(fontLarge);
+        // Carry has room for the crumb and the tool name on one line. The crumb is measured in its own
+        // large font, which is still set
+        const int16_t nameLeft = MARGIN + getTextWidth(head) + 12;
         const int16_t nameTop = 14 + fontLarge.heightAboveCursor() - fontMedium.heightAboveCursor();
         setFont(fontMedium);
-        setCrop(nameLeft, 0, std::max<int16_t>(0, statusLeft - 12 - nameLeft), 99);
-        printBold(nameLeft, nameTop, title);
+        const int16_t nameW = std::max<int16_t>(0, statusLeft - 12 - nameLeft);
+        setCrop(nameLeft, 0, nameW, 99);
+        printBold(nameLeft, nameTop, t5Elide(*this, title, nameW > 2 ? nameW - 2 : 0)); // 2 px of faux bold
         resetCrop();
     }
     setFont(fontSmall);

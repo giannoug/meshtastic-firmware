@@ -81,6 +81,7 @@ void InkHUD::T5ConversationApplet::onRender(bool full)
     const std::string back = std::string(BACK) + " " + t5ConvoTag(c);
     setFont(fontLarge);
     printBold(MARGIN, 6, back);
+    const int16_t backRight = MARGIN + getTextWidth(back); // In the large font it was drawn in
     const int16_t baseline = 6 + fontLarge.heightAboveCursor();
 
     // A DM shows its node id at the right; a channel has nothing to put there
@@ -93,7 +94,7 @@ void InkHUD::T5ConversationApplet::onRender(bool full)
     }
 
     setFont(fontMedium);
-    const int16_t column = std::max<int16_t>(150, MARGIN + getTextWidth(back) + 12);
+    const int16_t column = std::max<int16_t>(150, backRight + 12);
     setCrop(column, 0, std::max<int16_t>(0, idLeft - 12 - column), 64);
     printAt(column, baseline - fontMedium.heightAboveCursor(), t5ConvoTitle(c));
     resetCrop();
