@@ -197,13 +197,14 @@ void InkHUD::T5TracePickTask::drawRow(int16_t left, int16_t top, uint16_t w, Nod
 
     setFont(Applet::fontMedium);
     const int16_t nameLeft = left + T5Applet::MARGIN;
-    setCrop(nameLeft, top, std::max<int16_t>(0, textRight - nameLeft), rowH);
-    printBold(nameLeft, top + (console ? 6 : 12), t5NodeTitle(num));
+    const int16_t textW = std::max<int16_t>(0, textRight - nameLeft);
+    setCrop(nameLeft, top, textW, rowH);
+    printBold(nameLeft, top + (console ? 6 : 12), t5Elide(*this, t5NodeTitle(num), textW > 2 ? textW - 2 : 0)); // 2 px bold
     resetCrop();
 
     setFont(Applet::fontSmall);
-    setCrop(nameLeft, top, std::max<int16_t>(0, textRight - nameLeft), rowH);
-    printAt(nameLeft, top + (console ? 6 : 12) + Applet::fontMedium.lineHeight() + 4, sub);
+    setCrop(nameLeft, top, textW, rowH);
+    printAt(nameLeft, top + (console ? 6 : 12) + Applet::fontMedium.lineHeight() + 4, t5Elide(*this, sub, textW));
     resetCrop();
 
     drawLine(left, top + rowH - 1, right - 1, top + rowH - 1, BLACK);

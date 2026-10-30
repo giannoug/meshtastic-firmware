@@ -95,8 +95,9 @@ void InkHUD::T5ConversationApplet::onRender(bool full)
 
     setFont(fontMedium);
     const int16_t column = std::max<int16_t>(150, backRight + 12);
-    setCrop(column, 0, std::max<int16_t>(0, idLeft - 12 - column), 64);
-    printAt(column, baseline - fontMedium.heightAboveCursor(), t5ConvoTitle(c));
+    const int16_t titleW = std::max<int16_t>(0, idLeft - 12 - column);
+    setCrop(column, 0, titleW, 64);
+    printAt(column, baseline - fontMedium.heightAboveCursor(), t5Elide(*this, t5ConvoTitle(c), titleW));
     resetCrop();
 
     // Line 2, plus the frozen "n NEW" tag at its right end while something

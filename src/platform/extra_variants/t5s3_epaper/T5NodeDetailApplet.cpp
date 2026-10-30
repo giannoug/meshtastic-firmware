@@ -75,7 +75,7 @@ void InkHUD::T5NodeDetailApplet::onRender(bool full)
         printAt(idLeft, titleTop + fontLarge.heightAboveCursor() - fontSmall.heightAboveCursor(), id);
         setFont(fontMedium);
         setCrop(276, 0, idLeft - 12 - 276, 63);
-        printAt(276, nameTop, row.longName);
+        printAt(276, nameTop, t5Elide(*this, row.longName, idLeft - 12 - 276));
         resetCrop();
         drawLine(0, CONSOLE_BAND, width() - 1, CONSOLE_BAND, BLACK);
     } else {
@@ -86,7 +86,7 @@ void InkHUD::T5NodeDetailApplet::onRender(bool full)
         printAt(width() - MARGIN, 36, id, RIGHT);
         setFont(fontMedium);
         setCrop(column, 0, std::max<int16_t>(0, idLeft - 12 - column), 99);
-        printAt(column, nameTop, row.longName);
+        printAt(column, nameTop, t5Elide(*this, row.longName, std::max<int16_t>(0, idLeft - 12 - column)));
         resetCrop();
         drawLine(0, 99, width() - 1, 99, BLACK);
     }

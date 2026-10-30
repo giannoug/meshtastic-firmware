@@ -215,7 +215,7 @@ void InkHUD::T5NodesApplet::renderCarry(const std::vector<Row> &rows, uint16_t n
         setFont(fontMedium);
         printBold(MARGIN, top + 12, row.shortName);
         setCrop(column, top, barsLeft - 12 - column, rowHeight());
-        printAt(column, top + 12, row.longName);
+        printAt(column, top + 12, t5Elide(*this, row.longName, barsLeft - 12 - column));
         resetCrop();
         printAt(width() - 14, top + 42, CHEVRON, RIGHT, MIDDLE);
         if (row.signal != SIGNAL_UNKNOWN)
@@ -275,7 +275,7 @@ void InkHUD::T5NodesApplet::renderConsole(const std::vector<Row> &rows, uint16_t
         setCrop(nameX, top, longX - nameX - 8, rowHeight());
         printBold(nameX, mid - fontMedium.lineHeight() / 2, row.shortName);
         setCrop(longX, top, heardX - longX - 24, rowHeight()); // Wider than a word space: a cut name can't run into HEARD
-        printAt(longX, mid, row.longName, LEFT, MIDDLE);
+        printAt(longX, mid, t5Elide(*this, row.longName, heardX - longX - 24), LEFT, MIDDLE);
         resetCrop();
         printAt(width() - MARGIN, mid, CHEVRON, RIGHT, MIDDLE);
 

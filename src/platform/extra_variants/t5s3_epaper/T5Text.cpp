@@ -141,10 +141,9 @@ std::string InkHUD::t5Elide(NicheGraphics::InkHUD::Applet &applet, const std::st
 {
     if (t5TextWidth(applet, text) <= width)
         return text;
-    const uint16_t ellipsisW = t5TextWidth(applet, ELLIPSIS);
-    const uint16_t room = width > ellipsisW ? width - ellipsisW : 0;
+    // Measured with the ellipsis attached: the gap before it is part of the width
     std::string cut = text;
-    while (!cut.empty() && t5TextWidth(applet, cut) > room)
+    while (!cut.empty() && t5TextWidth(applet, cut + ELLIPSIS) > width)
         cut.pop_back();
     while (!cut.empty() && cut.back() == ' ')
         cut.pop_back();
