@@ -238,7 +238,7 @@ void InkHUD::T5MenuTask::drawHeader(const std::string &title, const std::string 
         printAt(width() - T5_MARGIN, (m.headerH - fontSmall.lineHeight()) / 2, context, RIGHT);
     } else {
         setCrop(T5_MARGIN, 0, (uint16_t)(width() - 2 * T5_MARGIN), m.headerH);
-        printAt(T5_MARGIN, 80 - fontSmall.heightAboveCursor(), t5Elide(*this, context, (uint16_t)(width() - 2 * T5_MARGIN)));
+        printAt(T5_MARGIN, 80 - 19, t5Elide(*this, context, (uint16_t)(width() - 2 * T5_MARGIN)));
         resetCrop();
     }
     drawLine(0, m.headerH, width() - 1, m.headerH, BLACK);

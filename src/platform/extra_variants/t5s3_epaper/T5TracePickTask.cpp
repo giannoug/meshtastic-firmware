@@ -205,7 +205,7 @@ void InkHUD::T5TracePickTask::drawRow(int16_t left, int16_t top, uint16_t w, Nod
     setFont(Applet::fontSmall);
     setCrop(nameLeft, top, textW, rowH);
     // Carry baselines top+34 and top+62 (Panel Fit D3)
-    printAt(nameLeft, console ? top + 6 + Applet::fontMedium.lineHeight() + 4 : top + 45, t5Elide(*this, sub, textW));
+    printAt(nameLeft, console ? top + 6 + Applet::fontMedium.lineHeight() + 4 : top + 43, t5Elide(*this, sub, textW));
     resetCrop();
 
     drawLine(left, top + rowH - 1, right - 1, top + rowH - 1, BLACK);
@@ -257,7 +257,7 @@ void InkHUD::T5TracePickTask::onRender(bool full)
     if (console)
         printAt(width() - T5Applet::MARGIN, (bandH - Applet::fontSmall.lineHeight()) / 2, "SELECT TARGET", RIGHT);
     else
-        printAt(T5Applet::MARGIN, 80 - Applet::fontSmall.heightAboveCursor(), "SELECT TARGET");
+        printAt(T5Applet::MARGIN, 80 - 19, "SELECT TARGET"); // Small caps end 19 px below the print top
     drawLine(0, bandH, width() - 1, bandH, BLACK);
 
     const std::vector<NodeNum> all = candidates();

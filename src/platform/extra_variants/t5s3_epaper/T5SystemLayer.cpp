@@ -54,7 +54,7 @@ const InkHUD::T5SystemLayer::Geometry CONSOLE = {
     /* bannerH */ 112,
     /* tagTop */ 320,
     /* tagH */ 30,
-    /* previewTop */ 363, // Panel Fit D9: baselines 380 / 406
+    /* previewTop */ 361, // Panel Fit D9: baselines 380 / 406
     /* previewH */ 52,    // 2 x 26
     /* previewLeft */ 16,
     /* previewW */ 560, // x 16-576, 20 px clear of the OPEN slot (D9)
