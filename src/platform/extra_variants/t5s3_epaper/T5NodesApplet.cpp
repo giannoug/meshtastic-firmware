@@ -101,7 +101,9 @@ InkHUD::T5NodesApplet::Row InkHUD::T5NodesApplet::readRow(meshtastic_NodeInfoLit
 {
     Row row;
     row.shortName = parseShortName(node);
-    row.longName = nodeInfoLiteHasUser(node) ? parse(node->long_name) : hexifyNodeNum(node->num);
+    // t5Parse, not parse(): Home and Node detail read rows too, and parse() decodes with this applet's last
+    // font, which before its first render cannot map U+2019
+    row.longName = nodeInfoLiteHasUser(node) ? t5Parse(node->long_name) : hexifyNodeNum(node->num);
     if (node->last_heard)
         row.heardSecs = sinceLastSeen(node);
     if (node->has_hops_away)
