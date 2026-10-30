@@ -62,6 +62,7 @@ void fixtureNode(const FixtureNode &n)
         offset(n.meters, n.bearing, p.latitude_i, p.longitude_i);
         p.has_latitude_i = p.has_longitude_i = true;
         p.time = nowEpoch - n.agoSecs;
+        p.precision_bits = n.precisionBits;
         nodeDB->updatePosition(n.num, p);
     }
     if (n.battery >= 0) {

@@ -14,6 +14,7 @@ struct FixtureNode {
     int16_t battery;  // < 0: no telemetry; 101 = powered
     bool favorite;
     uint8_t channel = 0;
+    uint32_t precisionBits = 0; // 0: full precision
 };
 
 uint32_t fixtureNow();

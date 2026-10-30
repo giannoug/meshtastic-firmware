@@ -9,7 +9,9 @@
 #include "BluetoothStatus.h"
 #include "DrawLog.h"
 #include "Fixtures.h"
+#include "GPSStatus.h"
 #include "MeshService.h"
+#include "MessageStore.h"
 #include "NodeDB.h"
 #include "PowerStatus.h"
 #include "ReliableRouter.h"
@@ -30,6 +32,7 @@
 #include "airtime.h"
 #include "graphics/niche/InkHUD/InkHUD.h"
 #include "graphics/niche/InkHUD/SystemApplet.h"
+#include "mesh/mesh-pb-constants.h"
 #include "modules/Modules.h"
 
 #include <cstdlib>
@@ -135,6 +138,63 @@ static void test_home_renders_in_both_modes()
 using Convo = InkHUD::T5MessageModel::Convo;
 static constexpr NodeNum KB7X = 0x7c19ab40, UNKNOWN_1C22 = 0x3fa91c22, SAMK = 0x77aa1001, WX01 = 0x9a01c0de;
 static constexpr NodeNum MESSY_LONG = 0x10000001, MESSY_GREEK = 0x10000002, OUR_NUM_FIXTURE = 0xa4f2c1b0;
+static constexpr NodeNum W7PD = 0x4e7f0d01;
+
+// Test-only access to the system layer's power-check clock: the watcher samples once a minute and needs two
+// samples in a row, which the harness should not wait for. Explicit instantiation is exempt from access checks
+struct PowerCheckField {
+    using type = uint32_t InkHUD::T5SystemLayer::*;
+    friend type get(PowerCheckField);
+};
+template <typename Tag, typename Tag::type M> struct RobT5 {
+    friend typename Tag::type get(Tag) { return M; }
+};
+template struct RobT5<PowerCheckField, &InkHUD::T5SystemLayer::lastPowerCheckMs>;
+
+// One power sample, as if the last one were a minute old
+static void powerSample(const meshtastic::PowerStatus &status)
+{
+    powerStatus->updateStatus(const_cast<meshtastic::PowerStatus *>(&status));
+    InkHUD::T5SystemLayer *layer = InkHUD::T5SystemLayer::get();
+    layer->*get(PowerCheckField()) = millis() - 61000;
+    layer->runOnce();
+}
+
+// A radio that takes every packet and says nothing back, so a send stays SENDING until a reply settles it
+class QuietRadio : public RadioInterface
+{
+  public:
+    ErrorCode send(meshtastic_MeshPacket *p) override
+    {
+        packetPool.release(p);
+        return ERRNO_OK;
+    }
+    uint32_t getPacketTime(uint32_t totalPacketLen, bool received = false) override
+    {
+        (void)totalPacketLen;
+        (void)received;
+        return 0;
+    }
+};
+
+// A routing reply to one of our sends, delivered as the radio would
+static void routingReply(uint32_t requestId, NodeNum from, meshtastic_Routing_Error error)
+{
+    static uint32_t nextId = 0x7000;
+    meshtastic_Routing r = meshtastic_Routing_init_default;
+    r.which_variant = meshtastic_Routing_error_reason_tag;
+    r.error_reason = error;
+    meshtastic_MeshPacket mp = meshtastic_MeshPacket_init_default;
+    mp.id = nextId++;
+    mp.from = from;
+    mp.to = OUR_NUM_FIXTURE;
+    mp.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    mp.decoded.portnum = meshtastic_PortNum_ROUTING_APP;
+    mp.decoded.request_id = requestId;
+    mp.decoded.payload.size =
+        pb_encode_to_bytes(mp.decoded.payload.bytes, sizeof(mp.decoded.payload.bytes), meshtastic_Routing_fields, &r);
+    MeshModule::callModules(mp, RX_SRC_RADIO);
+}
 
 // Close whatever task layer the previous state left open, one layer at a time like the Home key
 static void resetUi()
@@ -202,6 +262,7 @@ static void renderCoreScreens()
     both("nodes", [] { show("Nodes"); });
     both("nodes-p2", [] {
         show("Nodes");
+        renderNow(); // A mode change takes effect at the next render; paging needs that mode's rows per page
         InkHUD::T5NodesApplet::pageDown();
     });
     both("nodedetail", [] { InkHUD::T5NodeDetailApplet::open(KB7X); });
@@ -242,6 +303,26 @@ static void renderCoreScreens()
 
     both("map", [] { show("Map"); });
     both("map-focus", [] { InkHUD::T5MapApplet::focusNode(KB7X); });
+    if (std::string(dataset) == "canonical") {
+        // W7PD from a reduced-precision position north-north-west of us: DIST gives up its precision, BEARING
+        // its degrees, and the CENTER cell steps a wide short name down (Panel Fit D4, D7)
+        fixtureNode(
+            {W7PD, "Rhododendron Community Emergency Response Relay", "W7PD", 18300, 337, 2.0f, 2, 25 * 60, 77, false, 0, 13});
+        both("map-precise", [] { InkHUD::T5MapApplet::focusNode(W7PD); });
+        both("map-precise-us", [] {
+            InkHUD::T5MapApplet::focusNode(W7PD);
+            tapLabel("CENTER");
+        });
+        fixtureNode({W7PD, "Rhododendron Community Emergency Response Relay", "W7PD", 18300, 70, 2.0f, 2, 25 * 60, 77, false});
+    }
+    {
+        // GPS on without lock, from a position we once had: the dashed ring and its LAST FIX label (Map E2)
+        meshtastic::GPSStatus noLock(false, true, false, localPosition);
+        gpsStatus->updateStatus(&noLock);
+        both("map-lastfix", [] { show("Map"); });
+        meshtastic::GPSStatus lock(true, true, false, localPosition);
+        gpsStatus->updateStatus(&lock);
+    }
 
     both("apps", [] {
         resetUi();
@@ -272,7 +353,16 @@ static void renderCoreScreens()
     both("menu-region-confirm", [] {
         menuPage("RADIO");
         InkHUD::T5MenuTask::openPicker(InkHUD::T5Act::PICK_REGION, 0);
+        testDelay(350); // A task layer ignores taps for its first 300 ms (System UI G1)
         tapLabel("EU 868");
+    });
+    both("menu-channel1", [] {
+        menuPage("CHANNELS");
+        tapLabel("1 \xB7 "); // The second channel's row: C7, titled with its stored name (D12)
+    });
+    both("menu-pin-picker", [] {
+        menuPage("CONNECTIVITY");
+        InkHUD::T5MenuTask::openPicker(InkHUD::T5Act::PICK_PIN_MODE, 0);
     });
     resetUi();
 
@@ -320,27 +410,46 @@ static void renderCoreScreens()
         [] {
             resetUi();
             show("Apps");
-            for (int i = 0; i < 3; i++) {
-                meshtastic::PowerStatus low(meshtastic::OptTrue, meshtastic::OptFalse, meshtastic::OptFalse, 3550, 9);
-                powerStatus->updateStatus(&low);
-                InkHUD::T5SystemLayer::get()->runOnce();
-            }
+            for (int i = 0; i < 2; i++)
+                powerSample(meshtastic::PowerStatus(meshtastic::OptTrue, meshtastic::OptFalse, meshtastic::OptFalse, 3550, 9));
         },
         true);
     both(
         "battery-critical",
         [] {
-            for (int i = 0; i < 3; i++) {
-                meshtastic::PowerStatus crit(meshtastic::OptTrue, meshtastic::OptFalse, meshtastic::OptFalse, 3350, 2);
-                powerStatus->updateStatus(&crit);
-                InkHUD::T5SystemLayer::get()->runOnce();
-            }
+            for (int i = 0; i < 2; i++)
+                powerSample(meshtastic::PowerStatus(meshtastic::OptTrue, meshtastic::OptFalse, meshtastic::OptFalse, 3350, 2));
         },
         true);
-    {
-        meshtastic::PowerStatus usb(meshtastic::OptTrue, meshtastic::OptTrue, meshtastic::OptTrue, 4190, 100);
-        powerStatus->updateStatus(&usb);
-        InkHUD::T5SystemLayer::get()->runOnce();
+    powerSample(meshtastic::PowerStatus(meshtastic::OptTrue, meshtastic::OptTrue, meshtastic::OptTrue, 4190, 100));
+    resetUi();
+
+    if (std::string(dataset) == "canonical") {
+        // Our own messages in each delivery state the host can produce, settled by routing replies as the
+        // radio would send them. Channel sends: SENDING, RELAYED, NOT HEARD. A DM fails at once with KEY ERROR,
+        // as the host has no PKI keys; DELIVERED needs those too, so it is not covered. Last, because these
+        // change two conversations for every state after them
+        InkHUD::T5MessageModel *model = InkHUD::T5MessageModel::get();
+        const Convo ch0 = Convo::forChannel(0);
+        const char *texts[] = {"Heading back down now", "Anyone near the lower lot?", "On the ridge in 10"};
+        uint32_t ids[3] = {};
+        const bool txWas = config.lora.tx_enabled;
+        config.lora.tx_enabled = true; // Listen-only would have the router refuse every send at once
+        router->addInterface(std::unique_ptr<RadioInterface>(new QuietRadio())); // No interface: refused as RADIO OFF
+        for (int i = 0; i < 3; i++) {
+            model->send(ch0, texts[i]);
+            const InkHUD::T5MessageModel::Outgoing *o = model->outgoing(&messageStore.getLiveMessages().back());
+            ids[i] = o ? o->packetId : 0;
+        }
+        routingReply(ids[0], W7PD, meshtastic_Routing_Error_NONE);                      // RELAYED: a neighbour repeated it
+        routingReply(ids[1], OUR_NUM_FIXTURE, meshtastic_Routing_Error_MAX_RETRANSMIT); // NOT HEARD
+        // ids[2] stays SENDING
+        model->send(Convo::forPeer(KB7X), "Rain starting here"); // FAILED, KEY ERROR
+        both("convo-ch0-sends", [] { InkHUD::T5MessagesApplet::open(Convo::forChannel(0)); });
+        both("convo-dm-sends", [] { InkHUD::T5MessagesApplet::open(Convo::forPeer(KB7X)); });
+        config.lora.tx_enabled = txWas;
+        router->addInterface(nullptr);
+        resetUi();
     }
     resetUi();
 }
@@ -372,6 +481,19 @@ static void test_mode_cells_hit_what_they_draw()
 }
 
 // Terminal images ignore all input from then on, so they go last
+// PAIRING PIN picks the pairing mode. fixed_pin is the PIN number the app chose, and must survive the change
+static void test_pairing_pin_picker_writes_the_mode_not_the_pin()
+{
+    config.bluetooth.fixed_pin = 482913;
+    config.bluetooth.mode = meshtastic_Config_BluetoothConfig_PairingMode_RANDOM_PIN;
+    InkHUD::t5Apply(InkHUD::T5Act::PICK_PIN_MODE, 1, 0);
+    TEST_ASSERT_EQUAL(meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN, config.bluetooth.mode);
+    TEST_ASSERT_EQUAL_UINT32(482913, config.bluetooth.fixed_pin);
+    InkHUD::t5Apply(InkHUD::T5Act::PICK_PIN_MODE, 0, 0);
+    TEST_ASSERT_EQUAL(meshtastic_Config_BluetoothConfig_PairingMode_RANDOM_PIN, config.bluetooth.mode);
+    TEST_ASSERT_EQUAL_UINT32(482913, config.bluetooth.fixed_pin);
+}
+
 static void test_terminal_screens()
 {
     dataset = "canonical";
@@ -412,6 +534,7 @@ void setup()
     RUN_TEST(test_canonical_screens);
     RUN_TEST(test_messy_screens);
     RUN_TEST(test_mode_cells_hit_what_they_draw);
+    RUN_TEST(test_pairing_pin_picker_writes_the_mode_not_the_pin);
     RUN_TEST(test_terminal_screens);
     exit(UNITY_END());
 }
