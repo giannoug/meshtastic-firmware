@@ -553,6 +553,36 @@ static void test_canonical_screens()
     renderCoreScreens();
 }
 
+#ifdef T5_DEVTOOLS
+// A developer build's ABOUT page and its DEVELOPER TOOLS page (Menu C14 with the DEVELOPER section, C15)
+static void test_devtools_screens()
+{
+    dataset = "canonical";
+    seedCanonical();
+    show("Home"); // Seeding raises the new-message banner; clear it before the first tap
+    dismissBanner();
+    both("menu-ABOUT-dev", [] {
+        for (int tries = 0; tries < 2; tries++) { // The first tap after seeding can land before the menu takes input
+            menuPage("ABOUT");
+            drawLogStart();
+            renderNow();
+            drawLogStop();
+            if (logHasText("T5 BUILD"))
+                break;
+        }
+    });
+    both("menu-devtools", [] {
+        menuPage("ABOUT");
+        for (int page = 0; page < 4; page++) {
+            if (tapLabel("DEVELOPER TOOLS") || !tapLabel("NEXT"))
+                break;
+        }
+    });
+    TEST_ASSERT_TRUE(logHasText("FREE HEAP"));
+    resetUi();
+}
+#endif
+
 static void test_messy_screens()
 {
     dataset = "messy";
@@ -570,12 +600,16 @@ void setup()
     setupModules();
     setupNicheGraphics();
     UNITY_BEGIN();
+#ifdef T5_DEVTOOLS
+    RUN_TEST(test_devtools_screens); // env:native-t5-screens-dev renders only what a developer build adds
+#else
     RUN_TEST(test_home_renders_in_both_modes);
     RUN_TEST(test_canonical_screens);
     RUN_TEST(test_messy_screens);
     RUN_TEST(test_mode_cells_hit_what_they_draw);
     RUN_TEST(test_pairing_pin_picker_writes_the_mode_not_the_pin);
     RUN_TEST(test_terminal_screens);
+#endif
     exit(UNITY_END());
 }
 
