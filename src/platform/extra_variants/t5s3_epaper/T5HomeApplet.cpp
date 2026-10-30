@@ -394,18 +394,32 @@ void InkHUD::T5HomeApplet::renderCarry(const Status &s)
     const int16_t right = width() - MARGIN;
     const uint16_t innerW = width() - 2 * MARGIN;
 
-    // Identity: short name and node id left, battery and clock right, sharing a baseline
-    const std::string power = join(powerLabel(false), s.clock);
-    setFont(fontLarge);
-    printBold(MARGIN, 14, s.shortName);
-    const int16_t nameRight = MARGIN + getTextWidth(s.shortName);
-    const int16_t baseline = 14 + fontLarge.heightAboveCursor();
+    // Identity: short name and node id left, battery and clock right, on baseline 50. When they do not
+    // fit 16 px apart, the node id drops, then "CHG", then the short name steps down (Panel Fit D8)
+    std::string power = powerLabel(false);
+    bool showId = true, largeName = true;
+    auto fits = [&]() {
+        int16_t left = MARGIN + textW(largeName ? fontLarge : fontMedium, s.shortName) + 1; // 1 px bold
+        if (showId)
+            left += 12 + textW(fontSmall, s.nodeId);
+        return left + 16 + textW(fontMedium, join(power, s.clock)) + 1 <= right;
+    };
+    if (!fits())
+        showId = false;
+    if (!fits())
+        power = power.substr(0, power.find(" \xB7 ")); // The percentage stays
+    if (!fits())
+        largeName = false;
+
+    AppletFont nameFont = largeName ? fontLarge : fontMedium;
+    setFont(nameFont);
+    printBold(MARGIN, 50 - nameFont.heightAboveCursor(), s.shortName);
+    const int16_t nameRight = MARGIN + getTextWidth(s.shortName) + 1;
     setFont(fontMedium);
-    const int16_t powerLeft = right - getTextWidth(power);
-    printBold(right, baseline - fontMedium.heightAboveCursor(), power, RIGHT);
+    printBold(right, 50 - fontMedium.heightAboveCursor(), join(power, s.clock), RIGHT);
     setFont(fontSmall);
-    if (nameRight + 12 + getTextWidth(s.nodeId) + 12 <= powerLeft)
-        printAt(nameRight + 12, baseline - fontSmall.heightAboveCursor(), s.nodeId);
+    if (showId)
+        printAt(nameRight + 12, 50 - 19, s.nodeId); // Small caps end 19 px below the print top
     for (int16_t x = 0; x < width(); x += 2)
         drawPixel(x, 75, BLACK);
 
@@ -453,49 +467,62 @@ void InkHUD::T5HomeApplet::renderConsole(const Status &s)
 {
     const int16_t right = width() - MARGIN;
 
-    // Status line. Real font metrics can't fit all the design shows: drop the node id, then the preset,
-    // then the battery voltage, only while the line overflows
+    // Status line. When it does not fit with 16 px between the name group and the chips, things give way
+    // in the frozen order; the percentage and the clock never do (Panel Fit D8)
     std::string nodeId = s.nodeId;
     std::string lora = "LORA " + s.region + " " + s.preset;
     std::string batt = powerLabel(true);
+    std::string bt = s.bt;
+    bool largeName = true;
     auto chips = [&]() {
         std::vector<std::string> list;
-        for (const std::string &chip : {lora, s.gps, s.bt, batt, s.clock}) {
+        for (const std::string &chip : {lora, s.gps, bt, batt, s.clock}) {
             if (!chip.empty())
                 list.push_back(chip);
         }
         return list;
     };
+    auto fits = [&]() {
+        int16_t used = MARGIN + textW(largeName ? fontLarge : fontMedium, s.shortName) + 1; // 1 px bold
+        if (!nodeId.empty())
+            used += 14 + textW(fontSmall, nodeId);
+        used += 16 - 25; // The gap, less the separator the first chip doesn't have
+        for (const std::string &chip : chips())
+            used += 25 + textW(fontSmall, chip) + 1; // 12 + rule + 12
+        return used <= right;
+    };
+    if (!fits())
+        nodeId.clear();
+    if (!fits())
+        lora = "LORA " + s.region;
+    if (!fits())
+        batt = powerLabel(true, false);
+    if (!fits())
+        batt = batt.substr(0, batt.find(" \xB7 ")); // CHG
+    if (!fits() && batt.rfind("BATT ", 0) == 0)
+        batt = batt.substr(5);
+    if (!fits())
+        largeName = false;
+    if (!fits())
+        bt.clear();
 
-    setFont(fontLarge);
-    const int16_t nameTop = (CONSOLE_BAND - (fontLarge.heightAboveCursor() + fontLarge.heightBelowCursor())) / 2;
-    const int16_t nameRight = MARGIN + getTextWidth(s.shortName);
+    AppletFont nameFont = largeName ? fontLarge : fontMedium;
+    setFont(nameFont);
+    const int16_t nameTop = (CONSOLE_BAND - (nameFont.heightAboveCursor() + nameFont.heightBelowCursor())) / 2;
+    const int16_t nameRight = MARGIN + getTextWidth(s.shortName) + 1;
     printBold(MARGIN, nameTop, s.shortName);
-    const int16_t baseline = nameTop + fontLarge.heightAboveCursor();
+    const int16_t baseline = nameTop + nameFont.heightAboveCursor();
 
     setFont(fontSmall);
-    auto overflows = [&]() {
-        int16_t used = (nodeId.empty() ? nameRight : nameRight + 14 + getTextWidth(nodeId)) + 14;
-        for (const std::string &chip : chips())
-            used += getTextWidth(chip) + 28;
-        return used - 14 > right; // Last chip has no right padding
-    };
-    if (overflows())
-        nodeId.clear();
-    if (overflows())
-        lora = "LORA " + s.region;
-    if (overflows())
-        batt = powerLabel(true, false);
-
     if (!nodeId.empty())
-        printAt(nameRight + 14, baseline - fontSmall.heightAboveCursor(), nodeId);
+        printAt(nameRight + 14, baseline - 19, nodeId);
     int16_t x = right;
     const std::vector<std::string> list = chips();
     for (auto chip = list.rbegin(); chip != list.rend(); ++chip) {
-        printBold(x, 32 - fontSmall.lineHeight() / 2, *chip, RIGHT);
-        x -= getTextWidth(*chip) + 14;
+        printBold(x, 41 - 19, *chip, RIGHT); // Baseline 41
+        x -= getTextWidth(*chip) + 1 + 12;
         drawLine(x, 16, x, 47, BLACK);
-        x -= 14;
+        x -= 12;
     }
     drawLine(0, CONSOLE_BAND, width() - 1, CONSOLE_BAND, BLACK);
 

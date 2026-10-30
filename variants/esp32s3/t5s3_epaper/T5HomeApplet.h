@@ -60,6 +60,12 @@ class T5HomeApplet : public T5Applet, public concurrency::OSThread, public T5Red
                           uint16_t unseen);
     void drawModeControl(int16_t x, int16_t y, uint16_t w, uint16_t h);
     void printClipped(int16_t left, int16_t firstBaseline, uint16_t w, uint8_t lines, int16_t pitch, const std::string &text);
+    // Width of text in a face; leaves that face set
+    int16_t textW(AppletFont f, const std::string &text)
+    {
+        setFont(f);
+        return getTextWidth(text);
+    }
     std::string senderName(NodeNum num);
     const StoredMessage *latestIncoming(bool dmOnly = false);
     void drawHeardRow(int16_t left, int16_t top, uint16_t w, const T5NodesApplet::Row &row);
