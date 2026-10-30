@@ -426,9 +426,8 @@ static void renderCoreScreens()
 
     if (std::string(dataset) == "canonical") {
         // Our own messages in each delivery state the host can produce, settled by routing replies as the
-        // radio would send them. Channel sends: SENDING, RELAYED, NOT HEARD. A DM fails at once with KEY ERROR,
-        // as the host has no PKI keys; DELIVERED needs those too, so it is not covered. Last, because these
-        // change two conversations for every state after them
+        // radio would send them. Channel sends: SENDING, RELAYED, NOT HEARD; DMs: FAILED and DELIVERED. Last,
+        // because these change two conversations for every state after them
         InkHUD::T5MessageModel *model = InkHUD::T5MessageModel::get();
         const Convo ch0 = Convo::forChannel(0);
         const char *texts[] = {"Heading back down now", "Anyone near the lower lot?", "On the ridge in 10"};
@@ -444,7 +443,18 @@ static void renderCoreScreens()
         routingReply(ids[0], W7PD, meshtastic_Routing_Error_NONE);                      // RELAYED: a neighbour repeated it
         routingReply(ids[1], OUR_NUM_FIXTURE, meshtastic_Routing_Error_MAX_RETRANSMIT); // NOT HEARD
         // ids[2] stays SENDING
-        model->send(Convo::forPeer(KB7X), "Rain starting here"); // FAILED, KEY ERROR
+        // DMs: one to a node we hold no key for fails at once (FAILED · KEY ERROR). For DELIVERED, KB7X is given
+        // a public key - ours, a valid curve point, so the router's real PKI path runs - and acks the send
+        model->send(Convo::forPeer(KB7X), "Rain starting here");
+        if (meshtastic_NodeInfoLite *kb7x = nodeDB->getMeshNode(KB7X)) {
+            TEST_ASSERT_EQUAL_UINT32(32, config.security.public_key.size);
+            kb7x->public_key.size = 32;
+            memcpy(kb7x->public_key.bytes, config.security.public_key.bytes, 32);
+        }
+        model->send(Convo::forPeer(KB7X), "Made it to the car park");
+        const InkHUD::T5MessageModel::Outgoing *dmSend = model->outgoing(&messageStore.getLiveMessages().back());
+        TEST_ASSERT_NOT_NULL(dmSend);
+        routingReply(dmSend->packetId, KB7X, meshtastic_Routing_Error_NONE); // DELIVERED: the addressee acked
         both("convo-ch0-sends", [] { InkHUD::T5MessagesApplet::open(Convo::forChannel(0)); });
         both("convo-dm-sends", [] { InkHUD::T5MessagesApplet::open(Convo::forPeer(KB7X)); });
         config.lora.tx_enabled = txWas;
