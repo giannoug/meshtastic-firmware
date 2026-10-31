@@ -1139,6 +1139,8 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
             RadioLibInterface::instance ? RadioLibInterface::instance->rxGood + RadioLibInterface::instance->rxBad : 0;
         const uint32_t tx = RadioLibInterface::instance ? RadioLibInterface::instance->txGood : 0;
         auto *hud = InkHUD::InkHUD::getInstance();
+        const std::string packets = to_string(rx) + " / " + to_string(tx);
+        const std::string updates = to_string(hud->fastUpdates) + " / " + to_string(hud->fullUpdates);
 
         // The two tools the frozen page wraps are not wired to it. The screenshot tool captures three
         // named screens from a BOOT + side-key chord, and teaching it a fourth means broadening
@@ -1155,7 +1157,7 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
             rows.push_back(shot);
             rows.push_back(cal);
             rows.push_back(section("RADIO"));
-            rows.push_back(info("PACKETS RX / TX", to_string(rx) + " / " + to_string(tx)));
+            rows.push_back(info("PACKETS RX / TX", packets));
             rows.push_back(info(std::string("CHANNEL USE ") + SEP + " AIRTIME", use));
             rows.push_back(section("SYSTEM"));
             rows.push_back(info("FREE HEAP", heap));
@@ -1163,7 +1165,7 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
             rows.push_back(info("LAST RESET", resetReasonText((int)esp_reset_reason())));
             rows.push_back(info("SD CARD", sdCardText()));
             rows.push_back(section("DISPLAY"));
-            rows.push_back(info("FAST / FULL UPDATES", to_string(hud->fastUpdates) + " / " + to_string(hud->fullUpdates)));
+            rows.push_back(info("FAST / FULL UPDATES", updates));
         } else {
             rows.push_back(section("TOOLS"));
             rows.push_back(shot);
@@ -1175,10 +1177,10 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
             rows.push_back(info("LAST RESET", resetReasonText((int)esp_reset_reason())));
 
             rows.push_back(section("DISPLAY"));
-            rows.push_back(info("FAST / FULL UPDATES", to_string(hud->fastUpdates) + " / " + to_string(hud->fullUpdates)));
+            rows.push_back(info("FAST / FULL UPDATES", updates));
 
             rows.push_back(section("RADIO"));
-            rows.push_back(info("PACKETS RX / TX", to_string(rx) + " / " + to_string(tx)));
+            rows.push_back(info("PACKETS RX / TX", packets));
             rows.push_back(info(std::string("CHANNEL USE ") + SEP + " AIRTIME", use));
         }
 #endif

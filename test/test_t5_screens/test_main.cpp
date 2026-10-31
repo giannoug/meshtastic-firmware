@@ -35,6 +35,7 @@
 #include "mesh/mesh-pb-constants.h"
 #include "modules/Modules.h"
 
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -786,9 +787,16 @@ static void test_devtools_screens()
 static void test_update_counters_count_panel_updates()
 {
     InkHUD::InkHUD *hud = InkHUD::InkHUD::getInstance();
+    // Pins the Renderer.cpp counters the Developer tools page reads
     uint32_t full = hud->fullUpdates;
     renderNow();
     TEST_ASSERT_EQUAL_UINT32(full + 1, hud->fullUpdates);
+
+    full = hud->fullUpdates;
+    const uint32_t fast = hud->fastUpdates;
+    hud->forceUpdate(Drivers::EInk::UpdateTypes::FAST, true, false);
+    TEST_ASSERT_EQUAL_UINT32(fast + 1, hud->fastUpdates);
+    TEST_ASSERT_EQUAL_UINT32(full, hud->fullUpdates);
 }
 #endif
 
