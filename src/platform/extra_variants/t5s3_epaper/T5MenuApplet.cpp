@@ -484,6 +484,13 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
         // A bordered box, 64 px tall inside its slot. "..." already in the label means a confirmation
         const int16_t boxH = 64, boxTop = top + (h - boxH) / 2;
         setFont(fontSmall);
+        if (!row.available && console) {
+            // D19: 2 px dotted box, bold label at baseline top + 30, reason at top + 54, both centred
+            t5DottedRect(*this, left, boxTop, (uint16_t)(right - left), boxH, 2);
+            printBold((left + right) / 2, top + 30 - 19, row.label, CENTER);
+            printAt((left + right) / 2, top + 54 - 19, row.reason, CENTER);
+            return;
+        }
         if (!row.available) {
             t5DottedRect(*this, left, boxTop, (uint16_t)(right - left), boxH);
             // Label and reason box side by side when they fit; otherwise the reason drops to a second line

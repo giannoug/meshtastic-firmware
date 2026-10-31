@@ -51,8 +51,8 @@ void t5StrikeThrough(Applet &a, int16_t left, int16_t centerY, uint16_t w); // T
 // The frozen paging triangles. No Win-1253 glyph exists for either, and a large font for two shapes
 // would be worse than drawing them (V14)
 void t5DrawTriangle(Applet &a, int16_t centerX, int16_t centerY, bool up);
-// The frozen "unavailable" outline: 2 px dashes on a 4 px pitch, holding the reason
-void t5DottedRect(Applet &a, int16_t left, int16_t top, uint16_t w, uint16_t h);
+// The frozen "unavailable" outline: 2 px dashes on a 4 px pitch, t px thick, holding the reason
+void t5DottedRect(Applet &a, int16_t left, int16_t top, uint16_t w, uint16_t h, uint8_t t = 1);
 
 // The three that need Applet's protected text API. Defined here because they are a template; the
 // bodies are the ones T5Applet had, unchanged.

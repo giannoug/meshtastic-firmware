@@ -1151,13 +1151,19 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
         block(cal, "NOT IN THIS BUILD");
 
         if (console) {
-            rows.push_back(facts({{"FREE HEAP", heap},
-                                  {"FREE PSRAM", psram},
-                                  {"LAST RESET", resetReasonText((int)esp_reset_reason())},
-                                  {"SD CARD", sdCardText()},
-                                  {std::string("CHANNEL ") + SEP + " AIRTIME", use}}));
+            // D19: no TOOLS header; the greedy pager splits the page after CHANNEL USE
             rows.push_back(shot);
             rows.push_back(cal);
+            rows.push_back(section("RADIO"));
+            rows.push_back(info("PACKETS RX / TX", to_string(rx) + " / " + to_string(tx)));
+            rows.push_back(info(std::string("CHANNEL USE ") + SEP + " AIRTIME", use));
+            rows.push_back(section("SYSTEM"));
+            rows.push_back(info("FREE HEAP", heap));
+            rows.push_back(info("FREE PSRAM", psram));
+            rows.push_back(info("LAST RESET", resetReasonText((int)esp_reset_reason())));
+            rows.push_back(info("SD CARD", sdCardText()));
+            rows.push_back(section("DISPLAY"));
+            rows.push_back(info("FAST / FULL UPDATES", to_string(hud->fastUpdates) + " / " + to_string(hud->fullUpdates)));
         } else {
             rows.push_back(section("TOOLS"));
             rows.push_back(shot);

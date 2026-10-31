@@ -91,15 +91,15 @@ void InkHUD::t5DrawTriangle(Applet &a, int16_t centerX, int16_t centerY, bool up
     }
 }
 
-void InkHUD::t5DottedRect(Applet &a, int16_t left, int16_t top, uint16_t w, uint16_t h)
+void InkHUD::t5DottedRect(Applet &a, int16_t left, int16_t top, uint16_t w, uint16_t h, uint8_t t)
 {
     for (int16_t x = left; x < left + (int16_t)w; x += 4) {
-        a.fillRect(x, top, 2, 1, BLACK);
-        a.fillRect(x, top + (int16_t)h - 1, 2, 1, BLACK);
+        a.fillRect(x, top, 2, t, BLACK);
+        a.fillRect(x, top + (int16_t)h - t, 2, t, BLACK);
     }
     for (int16_t y = top; y < top + (int16_t)h; y += 4) {
-        a.fillRect(left, y, 1, 2, BLACK);
-        a.fillRect(left + (int16_t)w - 1, y, 1, 2, BLACK);
+        a.fillRect(left, y, t, 2, BLACK);
+        a.fillRect(left + (int16_t)w - t, y, t, 2, BLACK);
     }
 }
 

@@ -99,6 +99,14 @@ static bool logHasText(const char *needle)
     return false;
 }
 
+static bool logHasExactText(const char *text)
+{
+    for (const DrawRec &r : drawLog())
+        if (r.kind == DrawRec::TEXT && r.text == text)
+            return true;
+    return false;
+}
+
 void setUp() {}
 void tearDown() {}
 
@@ -649,7 +657,75 @@ static void test_devtools_screens()
                 break;
         }
     });
-    TEST_ASSERT_TRUE(logHasText("FREE HEAP"));
+    TEST_ASSERT_TRUE(logHasText("SAVE SCREENSHOT TO SD")); // Console opens on page 1
+
+    // Console (D19, K4 / K4b): two pages of info rows, an unavailable action drawn as a dotted box
+    t5SetMode(T5Mode::CONSOLE);
+    menuPage("ABOUT");
+    for (int page = 0; page < 4; page++) {
+        if (tapLabel("DEVELOPER TOOLS") || !tapLabel("NEXT"))
+            break;
+    }
+    InkHUD::InkHUD::getInstance()->fastUpdates = 123456;
+    InkHUD::InkHUD::getInstance()->fullUpdates = 65535;
+    drawLogStart();
+    renderNow();
+    drawLogStop();
+    TEST_ASSERT_TRUE(logHasExactText("SAVE SCREENSHOT TO SD"));
+    TEST_ASSERT_TRUE(logHasExactText("PACKETS RX / TX"));
+    TEST_ASSERT_FALSE(logHasExactText("123456 / 65535")); // On page 2
+    TEST_ASSERT_TRUE(logHasExactText("1 / 2"));
+    TEST_ASSERT_FALSE(logHasExactText("TOOLS"));
+    TEST_ASSERT_FALSE(logHasText("FREE HEAP"));
+    // The unavailable boxes (y 68-204, pane only) are 2 px dotted: every dash is 2 x 2, none 2 x 1 or 1 x 2
+    int dashes = 0;
+    for (const DrawRec &r : drawLog())
+        if (r.kind == DrawRec::FILL && r.x >= 416 && r.y >= 68 && r.y < 204 && r.w <= 2 && r.h <= 2) {
+            TEST_ASSERT_EQUAL_INT(2, r.w);
+            TEST_ASSERT_EQUAL_INT(2, r.h);
+            dashes++;
+        }
+    TEST_ASSERT_GREATER_THAN_INT(40, dashes);
+    // Label and reason are centred on the pane (664); the label is bold: two passes one pixel apart
+    int labelPasses = 0, reasons = 0;
+    for (const DrawRec &r : drawLog()) {
+        if (r.kind != DrawRec::TEXT)
+            continue;
+        const int centre = r.x + r.w / 2;
+        if (r.text == "SAVE SCREENSHOT TO SD") {
+            TEST_ASSERT_INT_WITHIN(1, 664, centre);
+            labelPasses++;
+        } else if (r.text == "NO SD CARD" || r.text == "NOT IN THIS BUILD") {
+            if (reasons++ == 0)
+                TEST_ASSERT_INT_WITHIN(1, 664, centre);
+        }
+    }
+    TEST_ASSERT_EQUAL_INT(2, labelPasses);
+    TEST_ASSERT_EQUAL_INT(2, reasons); // One for each action
+
+    TEST_ASSERT_TRUE(tapLabel("NEXT"));
+    InkHUD::InkHUD::getInstance()->fastUpdates = 123456;
+    InkHUD::InkHUD::getInstance()->fullUpdates = 65535;
+    snap("menu-devtools-p2");
+    TEST_ASSERT_TRUE(logHasExactText("FREE HEAP"));
+    TEST_ASSERT_TRUE(logHasExactText("SD CARD"));
+    TEST_ASSERT_TRUE(logHasExactText("NOT ON THIS BOARD"));
+    TEST_ASSERT_TRUE(logHasExactText("FAST / FULL UPDATES"));
+    TEST_ASSERT_TRUE(logHasExactText("123456 / 65535"));
+    TEST_ASSERT_TRUE(logHasExactText("2 / 2"));
+    for (const DrawRec &r : drawLog())
+        if (r.kind == DrawRec::TEXT && r.x >= 400)
+            TEST_ASSERT_TRUE_MESSAGE(r.text.find('\x85') == std::string::npos, r.text.c_str());
+    resetUi();
+    menuPage("ABOUT");
+    for (int page = 0; page < 4; page++) {
+        if (tapLabel("DEVELOPER TOOLS") || !tapLabel("NEXT"))
+            break;
+    }
+    drawLogStart();
+    renderNow();
+    drawLogStop();
+    TEST_ASSERT_TRUE(logHasExactText("1 / 2")); // Opening the page starts on page 1
 
     // Carry (C15): counters at the widths where the row has least room
     t5SetMode(T5Mode::CARRY);
