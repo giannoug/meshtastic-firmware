@@ -1129,11 +1129,16 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
     case T5Page::DEVTOOLS: {
 #ifdef T5_DEVTOOLS
         char heap[48];
-        snprintf(heap, sizeof(heap), "%u KB %s MIN %u", (unsigned)(ESP.getFreeHeap() / 1024), SEP,
+        snprintf(heap, sizeof(heap), "%u KB %s MIN %u KB", (unsigned)(ESP.getFreeHeap() / 1024), SEP,
                  (unsigned)(ESP.getMinFreeHeap() / 1024));
         char psram[24];
         snprintf(psram, sizeof(psram), "%.1f MB", ESP.getFreePsram() / (1024.0 * 1024.0));
         const std::string use = channelUseText() + " " + SEP + " " + airtimeText();
+        // Same counts the device telemetry reports
+        const uint32_t rx =
+            RadioLibInterface::instance ? RadioLibInterface::instance->rxGood + RadioLibInterface::instance->rxBad : 0;
+        const uint32_t tx = RadioLibInterface::instance ? RadioLibInterface::instance->txGood : 0;
+        auto *hud = InkHUD::InkHUD::getInstance();
 
         // The two tools the frozen page wraps are not wired to it. The screenshot tool captures three
         // named screens from a BOOT + side-key chord, and teaching it a fourth means broadening
@@ -1163,7 +1168,11 @@ std::vector<InkHUD::T5Row> InkHUD::t5BuildPage(T5Page page, uint8_t channelIndex
             rows.push_back(info("FREE PSRAM", psram));
             rows.push_back(info("LAST RESET", resetReasonText((int)esp_reset_reason())));
 
+            rows.push_back(section("DISPLAY"));
+            rows.push_back(info("FAST / FULL UPDATES", to_string(hud->fastUpdates) + " / " + to_string(hud->fullUpdates)));
+
             rows.push_back(section("RADIO"));
+            rows.push_back(info("PACKETS RX / TX", to_string(rx) + " / " + to_string(tx)));
             rows.push_back(info(std::string("CHANNEL USE ") + SEP + " AIRTIME", use));
         }
 #endif

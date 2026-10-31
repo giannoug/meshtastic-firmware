@@ -36,6 +36,7 @@
 #include "modules/Modules.h"
 
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <sys/stat.h>
 #include <unity.h>
@@ -649,7 +650,52 @@ static void test_devtools_screens()
         }
     });
     TEST_ASSERT_TRUE(logHasText("FREE HEAP"));
+
+    // Carry (C15): counters at the widths where the row has least room
+    t5SetMode(T5Mode::CARRY);
+    menuPage("ABOUT");
+    for (int page = 0; page < 4; page++) {
+        if (tapLabel("DEVELOPER TOOLS") || !tapLabel("NEXT"))
+            break;
+    }
+    dismissBanner();
+    // Each render bumps the counter after drawing, so the log shows the value set here
+    InkHUD::InkHUD::getInstance()->fastUpdates = 123456;
+    InkHUD::InkHUD::getInstance()->fullUpdates = 65535;
+    snap("menu-devtools-c15");
+    TEST_ASSERT_TRUE(logHasText("FAST / FULL UPDATES"));
+    TEST_ASSERT_TRUE(logHasText("123456 / 65535"));
+    TEST_ASSERT_TRUE(logHasText("PACKETS RX / TX"));
+    TEST_ASSERT_TRUE(logHasText("0 / 0")); // No radio on the host
+    TEST_ASSERT_TRUE(logHasText("DISPLAY"));
+    TEST_ASSERT_TRUE(logHasText("RADIO"));
+    // "<n> KB · MIN <n> KB": the unit follows both heap figures; · is 0xB7 and … is 0x85 in the font's code page
+    bool heapOk = false;
+    int ellipses = 0;
+    for (const DrawRec &r : drawLog()) {
+        if (r.kind != DrawRec::TEXT)
+            continue;
+        ellipses += r.text.find('\x85') != std::string::npos;
+        size_t m = r.text.find(" KB \xB7 MIN ");
+        if (m == std::string::npos)
+            continue;
+        size_t i = m + strlen(" KB \xB7 MIN ");
+        size_t digits = 0;
+        while (i + digits < r.text.size() && isdigit((unsigned char)r.text[i + digits]))
+            digits++;
+        heapOk = heapOk || (m > 0 && digits > 0 && r.text.compare(i + digits, std::string::npos, " KB") == 0);
+    }
+    TEST_ASSERT_TRUE(heapOk);
+    TEST_ASSERT_EQUAL_INT(1, ellipses); // Only TOUCH CALIBRATION… carries one
     resetUi();
+}
+
+static void test_update_counters_count_panel_updates()
+{
+    InkHUD::InkHUD *hud = InkHUD::InkHUD::getInstance();
+    uint32_t full = hud->fullUpdates;
+    renderNow();
+    TEST_ASSERT_EQUAL_UINT32(full + 1, hud->fullUpdates);
 }
 #endif
 
@@ -672,6 +718,7 @@ void setup()
     UNITY_BEGIN();
 #ifdef T5_DEVTOOLS
     RUN_TEST(test_devtools_screens); // env:native-t5-screens-dev renders only what a developer build adds
+    RUN_TEST(test_update_counters_count_panel_updates);
 #else
     RUN_TEST(test_home_renders_in_both_modes);
     RUN_TEST(test_canonical_screens);

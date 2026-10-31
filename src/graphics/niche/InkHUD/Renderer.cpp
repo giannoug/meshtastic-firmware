@@ -254,6 +254,7 @@ void InkHUD::Renderer::render(bool async)
 
         // Tell display to begin process of drawing new image
         LOG_INFO("Updating display");
+        (updateType == Drivers::EInk::UpdateTypes::FULL ? inkhud->fullUpdates : inkhud->fastUpdates)++;
         driver->update(imageBuffer, updateType);
 
         // If not async, wait here until the update is complete

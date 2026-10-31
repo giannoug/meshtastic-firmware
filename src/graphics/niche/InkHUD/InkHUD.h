@@ -155,6 +155,8 @@ class InkHUD
     // Shared data which persists between boots
     Persistence *persistence = nullptr;
 
+    uint32_t fastUpdates = 0, fullUpdates = 0; // Panel updates sent, by type
+
   private:
     InkHUD() {} // Constructor made private to force use of InkHUD::getInstance
 
