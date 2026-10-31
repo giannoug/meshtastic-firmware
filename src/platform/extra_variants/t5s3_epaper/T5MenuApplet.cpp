@@ -324,22 +324,22 @@ void InkHUD::T5MenuApplet::drawPager(const Metrics &m, uint8_t pages)
     const int16_t cellW = (m.paneRight - m.paneLeft) / 3;
     setFont(fontSmall);
     if (t5IsConsole(*this)) {
-        // Three ruled 176 px cells, small bold; PREV stays, struck and regular, when there is none (Panel Fit D1)
+        // Three ruled 176 px cells: a live arrow is small bold, a dead one regular and struck, the count regular (D19)
         const int16_t mid = top + m.pagerH / 2;
         for (uint8_t i = 1; i < 3; i++)
             drawLine(m.paneLeft + i * cellW, top, m.paneLeft + i * cellW, m.listBottom - 1, BLACK);
-        const std::string prev = std::string(T5Applet::BACK) + " PREV", next = std::string("NEXT ") + T5Applet::FWD;
-        if (pageIndex > 0) {
-            printBold(m.paneLeft + cellW / 2, mid - fontSmall.lineHeight() / 2, prev, CENTER);
-        } else {
-            printAt(m.paneLeft + cellW / 2, mid, prev, CENTER, MIDDLE);
-            const int16_t w = getTextWidth(prev);
-            t5StrikeThrough(*this, m.paneLeft + (cellW - w) / 2, mid, w);
-        }
-        printBold(m.paneLeft + cellW * 3 / 2, mid - fontSmall.lineHeight() / 2,
-                  to_string(pageIndex + 1) + " / " + to_string(pages), CENTER);
-        if (pageIndex + 1 < pages)
-            printBold(m.paneLeft + cellW * 5 / 2, mid - fontSmall.lineHeight() / 2, next, CENTER);
+        auto arrow = [&](int16_t centerX, const std::string &text, bool live) {
+            if (live) {
+                printBold(centerX, mid - fontSmall.lineHeight() / 2, text, CENTER);
+                return;
+            }
+            printAt(centerX, mid, text, CENTER, MIDDLE);
+            const int16_t w = getTextWidth(text);
+            t5StrikeThrough(*this, centerX - w / 2, mid, w);
+        };
+        arrow(m.paneLeft + cellW / 2, std::string(T5Applet::BACK) + " PREV", pageIndex > 0);
+        printAt(m.paneLeft + cellW * 3 / 2, mid, to_string(pageIndex + 1) + " / " + to_string(pages), CENTER, MIDDLE);
+        arrow(m.paneLeft + cellW * 5 / 2, std::string("NEXT ") + T5Applet::FWD, pageIndex + 1 < pages);
         return;
     }
     if (pageIndex > 0)

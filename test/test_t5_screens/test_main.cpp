@@ -713,6 +713,23 @@ static void test_devtools_screens()
     TEST_ASSERT_TRUE(logHasExactText("FAST / FULL UPDATES"));
     TEST_ASSERT_TRUE(logHasExactText("123456 / 65535"));
     TEST_ASSERT_TRUE(logHasExactText("2 / 2"));
+    // Pager (D19): the count is regular (one pass, not printBold's two); on the last page NEXT is regular and struck
+    const std::string next = std::string("NEXT ") + InkHUD::T5Applet::FWD;
+    int counts = 0, nexts = 0;
+    bool struck = false;
+    for (const DrawRec &r : drawLog()) {
+        if (r.kind == DrawRec::TEXT && r.text == "2 / 2")
+            counts++;
+        if (r.kind == DrawRec::TEXT && r.text == next) {
+            nexts++;
+            for (const DrawRec &f : drawLog())
+                struck = struck || (f.kind == DrawRec::FILL && f.h == 2 && f.x >= r.x && f.x + f.w <= r.x + r.w && f.y >= r.y &&
+                                    f.y < r.y + r.h);
+        }
+    }
+    TEST_ASSERT_EQUAL_INT(1, counts);
+    TEST_ASSERT_EQUAL_INT(1, nexts);
+    TEST_ASSERT_TRUE(struck);
     for (const DrawRec &r : drawLog())
         if (r.kind == DrawRec::TEXT && r.x >= 400)
             TEST_ASSERT_TRUE_MESSAGE(r.text.find('\x85') == std::string::npos, r.text.c_str());
