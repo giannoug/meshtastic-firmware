@@ -534,6 +534,76 @@ static void test_pairing_pin_picker_writes_the_mode_not_the_pin()
     TEST_ASSERT_EQUAL_UINT32(482913, config.bluetooth.fixed_pin);
 }
 
+// Frozen frames: an info row ends in a dotted rule, a section header sits under a solid one, and no rules double
+static void test_menu_rules_follow_the_frozen_frames()
+{
+    seedCanonical();
+    // Info and section labels each page draws. Release Console ABOUT is a facts grid, so Console takes POWER and RADIO
+    struct Page {
+        T5Mode mode;
+        const char *name;
+        std::vector<const char *> info, sections;
+    };
+    const std::vector<Page> pages = {
+        {T5Mode::CARRY,
+         "ABOUT",
+         {"NAME", "NODE ID", "BOARD", "RADIO", "GPS", "SD CARD", "FIRMWARE", "T5 BUILD", "UPTIME"},
+         {"THIS NODE", "HARDWARE", "SOFTWARE"}},
+        {T5Mode::CARRY, "RADIO", {"CHANNEL USE", "MY AIRTIME"}, {"MESH", "LIVE", "IN THE PHONE APP"}},
+        {T5Mode::CONSOLE, "POWER", {"LEVEL", "VOLTAGE", "SOURCE"}, {"BATTERY", "SAVING", "DEVICE"}},
+        {T5Mode::CONSOLE, "RADIO", {}, {"MESH"}},
+    };
+    const auto isDash = [](const DrawRec &r) { return r.kind == DrawRec::FILL && r.w == 2 && r.h == 1; };
+    for (const Page &page : pages) {
+        t5SetMode(page.mode);
+        // Console's pane is 400..928; labels sit in its left margin, values (which can repeat a label) at the right
+        const int16_t paneL = page.mode == T5Mode::CARRY ? 0 : 400, paneW = page.mode == T5Mode::CARRY ? 508 : 528;
+        const auto isRule = [paneW](const DrawRec &r) { return r.kind == DrawRec::LINE && r.h == 0 && r.w >= paneW - 1; };
+        menuPage(page.name);
+        drawLogStart();
+        renderNow();
+        drawLogStop();
+        const std::vector<DrawRec> &log = drawLog();
+        const auto labelOf = [&](const char *label) {
+            const DrawRec *text = nullptr;
+            for (const DrawRec &r : log)
+                if (r.kind == DrawRec::TEXT && r.text == label && r.x >= paneL && r.x < paneL + 40)
+                    text = &r;
+            TEST_ASSERT_NOT_NULL_MESSAGE(text, label);
+            return text;
+        };
+        for (const char *label : page.info) {
+            const DrawRec *text = labelOf(label);
+            bool dotted = false;
+            for (const DrawRec &a : log) {
+                if (!isDash(a) || a.y < text->y + text->h || a.y > text->y + text->h + 20)
+                    continue;
+                int dashes = 0;
+                for (const DrawRec &r : log)
+                    dashes += isDash(r) && r.y == a.y;
+                dotted |= dashes >= paneW / 4;
+            }
+            TEST_ASSERT_TRUE_MESSAGE(dotted, label);
+        }
+        for (const char *label : page.sections) {
+            const DrawRec *text = labelOf(label);
+            bool rule = false;
+            for (const DrawRec &r : log)
+                rule |= isRule(r) && r.y >= text->y - 8 && r.y < text->y;
+            TEST_ASSERT_TRUE_MESSAGE(rule, label);
+        }
+        // The pager's own rule may sit under a trailing section's; only rules above the pager are the rows'
+        int16_t rowsEnd = INT16_MAX;
+        for (const DrawRec &r : log)
+            if (r.kind == DrawRec::TEXT && r.text.find("PREV") != std::string::npos)
+                rowsEnd = r.y - 24;
+        for (const DrawRec &a : log)
+            for (const DrawRec &b : log)
+                TEST_ASSERT_FALSE_MESSAGE(isRule(a) && isRule(b) && b.y == a.y + 1 && b.y < rowsEnd, page.name);
+    }
+    resetUi();
+}
+
 static void test_terminal_screens()
 {
     dataset = "canonical";
@@ -608,6 +678,7 @@ void setup()
     RUN_TEST(test_messy_screens);
     RUN_TEST(test_mode_cells_hit_what_they_draw);
     RUN_TEST(test_pairing_pin_picker_writes_the_mode_not_the_pin);
+    RUN_TEST(test_menu_rules_follow_the_frozen_frames);
     RUN_TEST(test_terminal_screens);
 #endif
     exit(UNITY_END());

@@ -404,6 +404,8 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
     switch (row.kind) {
 
     case T5RowKind::SECTION:
+        // Solid rule above too, on the pixel row of the previous row's bottom rule so the two never double
+        drawLine(m.paneLeft, top - 1, m.paneRight - 1, top - 1, BLACK);
         setFont(fontSmall);
         printBold(left, top + 25 - 19, row.label);
         drawLine(m.paneLeft, top + h - 1, m.paneRight - 1, top + h - 1, BLACK);
@@ -454,6 +456,8 @@ void InkHUD::T5MenuApplet::drawRow(const T5Row &row, int16_t top, int16_t h, con
         // The value gives way to its label: a long name is elided, never drawn over it
         const int16_t valueW = std::max<int16_t>(0, right - left - getTextWidth(row.label) - 12 - 2);
         printBold(right, top + 32 - 19, t5Elide(*this, row.value, valueW), RIGHT);
+        for (int16_t x = m.paneLeft; x < m.paneRight; x += 4) // Dotted bottom rule, as t5DottedRect
+            fillRect(x, top + h - 1, 2, 1, BLACK);
         return;
     }
 
