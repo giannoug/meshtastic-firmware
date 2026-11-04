@@ -34,6 +34,19 @@
 #include <ctime>
 #endif
 
+#ifdef ARCH_RP2040
+#include <hardware/watchdog.h>
+#endif
+
+// GPS::setup() blocks the main loop for well over the RP2040 hardware watchdog window (8 s, fed only from loop()):
+// the u-blox M10 config alone is ~15 s of ACK waits and delays. Keep the watchdog fed while we wait on the module.
+static inline void feedWatchdogWhileWaiting()
+{
+#ifdef ARCH_RP2040
+    watchdog_update();
+#endif
+}
+
 #ifndef GPS_RESET_MODE
 #define GPS_RESET_MODE HIGH
 #endif
@@ -64,6 +77,11 @@ std::unique_ptr<GPS> gps = nullptr;
 
 static GPSUpdateScheduling scheduling;
 
+// A board can share one pin between an L76K standby and an Airoha RTC_INT (ThinkNode M5 v1.0/v2.0).
+#if defined(PIN_GPS_STANDBY) && defined(GPS_RTC_INT) && PIN_GPS_STANDBY == GPS_RTC_INT
+#define GPS_STANDBY_IS_RTC_INT 1
+#endif
+
 /// Multiple GPS instances might use the same serial port (in sequence), but we can
 /// only init that port once.
 static bool didSerialInit;
@@ -87,18 +105,35 @@ constexpr uint16_t GPS_PROBE_CACHE_VERSION = 1;
 constexpr const char *GPS_PROBE_CACHE_FILE = "/prefs/gps_probe_cache.dat";
 constexpr int MIN_PLAUSIBLE_GPS_YEAR = 2020;
 constexpr int MAX_PLAUSIBLE_GPS_YEAR = 2100;
-#ifdef GNSS_AIROHA
 constexpr uint32_t AIROHA_PROBE_SETTLE_MS = 20;
-#endif
+#ifdef HAS_AIROHA_SLEEP
+// The receiver may already have auto-slept and missed the first sleep command, so resend until it acks.
 #ifdef HAS_AIROHA_SOFT_RTC
-// The receiver may already have auto-slept and missed the first $PAIR650, so resend until it acks.
 constexpr uint32_t AIROHA_SLEEP_ACK_MS = 40;
 constexpr uint32_t AIROHA_SLEEP_BUDGET_MS = 400;
+#else
+// $PAIR003 first answers ",1" (processing); the final ",0" can take longer than 40 ms.
+constexpr uint32_t AIROHA_SLEEP_ACK_MS = 100;
+// A successful $PAIR650 need not answer at all, but either command stops NMEA once it takes effect,
+// so silence for longer than one 1 Hz NMEA cycle also counts as asleep.
+constexpr uint32_t AIROHA_SLEEP_QUIET_MS = 1100;
+constexpr uint8_t AIROHA_SLEEP_ATTEMPTS = 2;
+#endif
 // Stop parking a receiver that never acks, rather than blocking for the budget every cycle forever.
 constexpr uint8_t AIROHA_SLEEP_MAX_MISSES = 3;
+#endif
+#ifdef HAS_AIROHA_SOFT_RTC
 constexpr uint32_t AIROHA_POWER_SETTLE_MS = 50;
 constexpr uint32_t AIROHA_RTC_INT_PULSE_MS = 3;
 constexpr uint32_t AIROHA_WAKE_SETTLE_MS = 50;
+#elif defined(HAS_AIROHA_SLEEP)
+constexpr uint32_t AIROHA_IDLE_INT_LEAD_MS = 50;
+// The ack can precede the transition itself, so give the receiver time before its core supply goes.
+constexpr uint32_t AIROHA_SLEEP_SETTLE_MS = 50;
+#endif
+#ifdef HAS_AIROHA_RESET_WAKE
+constexpr uint32_t AIROHA_POWER_SETTLE_MS = 50;
+constexpr uint32_t AIROHA_RESET_PULSE_MS = 10;
 #endif
 
 struct GPSProbeCacheRecord {
@@ -132,9 +167,49 @@ static void airohaPulseRtcInt()
     digitalWrite(GPS_RTC_INT, LOW);
     delay(AIROHA_WAKE_SETTLE_MS);
 }
+#elif defined(HAS_AIROHA_SLEEP)
+// idle_int rests high; the receiver only hears a command sent while it is pulled low.
+template <typename T> static void airohaWriteIdleInt(T *serialGps, const char *cmd)
+{
+    digitalWrite(GPS_SLEEP_INT, LOW);
+    delay(AIROHA_IDLE_INT_LEAD_MS);
+    serialGps->write(cmd);
+    serialGps->flush();
+    digitalWrite(GPS_SLEEP_INT, HIGH);
+}
+
+// True if no NMEA sentence starts for a whole NMEA cycle. Late $PAIR001 replies don't count.
+template <typename T> static bool airohaWentQuiet(T *serialGps)
+{
+    const uint32_t start = Time::getMillis();
+    int prev = 0;
+    while (Throttle::isWithinTimespanMs(start, AIROHA_SLEEP_QUIET_MS)) {
+        feedWatchdogWhileWaiting();
+        while (serialGps->available()) {
+            int c = serialGps->read();
+            if (prev == '$' && c == 'G')
+                return false;
+            prev = c;
+        }
+        delay(10);
+    }
+    return true;
+}
 #endif
 
-template <typename T> void wakeAirohaForActiveProbe(T *serialGps)
+#ifdef HAS_AIROHA_RESET_WAKE
+// Backup mode only ends on RESETB; the core supply must already be up.
+static void airohaPulseReset()
+{
+    delay(AIROHA_POWER_SETTLE_MS);
+    pinMode(PIN_GPS_RESET, OUTPUT);
+    digitalWrite(PIN_GPS_RESET, GPS_RESET_MODE);
+    delay(AIROHA_RESET_PULSE_MS);
+    digitalWrite(PIN_GPS_RESET, !GPS_RESET_MODE);
+}
+#endif
+
+template <typename T> void sendAirohaWakeCommand(T *serialGps)
 {
 #ifdef HAS_AIROHA_SOFT_RTC
     // The probe's own hardware reset drops the receiver back to sleep, so force the physical wake
@@ -145,13 +220,16 @@ template <typename T> void wakeAirohaForActiveProbe(T *serialGps)
     airohaPulseRtcInt();
     serialGps->write("$PAIR382,1*2E\r\n");
     delay(AIROHA_PROBE_SETTLE_MS);
-#elif defined(GNSS_AIROHA)
-    // No RTC_INT routed: the command alone is still worth sending, since probing only reads.
+#else
     serialGps->write("$PAIR382,1*2E\r\n");
     delay(AIROHA_PROBE_SETTLE_MS);
-#else
-    (void)serialGps;
 #endif
+}
+
+template <typename T> void wakeAirohaForActiveProbe(T *serialGps, GnssModel_t model)
+{
+    if (IS_ONE_OF(model, GNSS_MODEL_AG3335, GNSS_MODEL_AG3352))
+        sendAirohaWakeCommand(serialGps);
 }
 
 bool isPlausibleNmeaTime(const struct tm &t)
@@ -377,6 +455,7 @@ GPS_RESPONSE GPS::getACK(const char *message, uint32_t waitMillis)
     std::string debugmsg = "";
 #endif
     while (Throttle::isWithinTimespanMs(waitStartMs, waitMillis)) {
+        feedWatchdogWhileWaiting();
         if (_serial_gps->available()) {
             b = _serial_gps->read();
 
@@ -481,6 +560,7 @@ GPS_RESPONSE GPS::getACK(uint8_t class_id, uint8_t msg_id, uint32_t waitMillis)
     }
 
     while (Throttle::isWithinTimespanMs(startTime, waitMillis)) {
+        feedWatchdogWhileWaiting();
         if (ack > 9) {
             LOG_DEBUG_GPS("Got ACK for class %02X msg %02X in %dms", class_id, msg_id, millis() - startTime);
             return GNSS_RESPONSE_OK; // ACK received
@@ -532,6 +612,7 @@ int GPS::getACK(uint8_t *buffer, uint16_t size, uint8_t requestedClass, uint8_t 
     uint16_t needRead = 0;
 
     while (Throttle::isWithinTimespanMs(startTime, waitMillis)) {
+        feedWatchdogWhileWaiting();
         if (_serial_gps->available()) {
             int c = _serial_gps->read();
             switch (ubxFrameCounter) {
@@ -742,7 +823,7 @@ bool GPS::verifyCachedProbePresence()
     case GNSS_MODEL_AG3352:
         if (cachedProbeModel == GNSS_MODEL_AG3352)
             cachedProbeModelName = "AG3352";
-        wakeAirohaForActiveProbe(_serial_gps);
+        wakeAirohaForActiveProbe(_serial_gps, cachedProbeModel);
         _serial_gps->write("$PAIR021*39\r\n");
         present = (getACK("$PAIR021,", 900) == GNSS_RESPONSE_OK);
         break;
@@ -1192,7 +1273,12 @@ void GPS::setPowerState(GPSPowerState newState, uint32_t sleepTime)
         powerMon->setState(meshtastic_PowerMon_State_GPS_Active); // Report change for power monitoring (during testing)
         writePinEN(true);                                         // Power (EN pin): on
 #ifdef HAS_AIROHA_SOFT_RTC
-        airohaPulseRtcInt(); // Airoha: leave software-RTC sleep, now that VCC is back
+        if (IS_ONE_OF(gnssModel, GNSS_MODEL_AG3335, GNSS_MODEL_AG3352))
+            airohaPulseRtcInt(); // Airoha: leave software-RTC sleep, now that VCC is back
+#endif
+#ifdef HAS_AIROHA_RESET_WAKE
+        if (IS_ONE_OF(gnssModel, GNSS_MODEL_AG3335, GNSS_MODEL_AG3352))
+            airohaPulseReset(); // Airoha: leave backup mode, now that the core is powered
 #endif
         setPowerPMU(true);      // Power (PMU): on
         writePinRFEN(true);     // External RF front-end: on
@@ -1211,9 +1297,9 @@ void GPS::setPowerState(GPSPowerState newState, uint32_t sleepTime)
 
     case GPS_HARDSLEEP:
         powerMon->clearState(meshtastic_PowerMon_State_GPS_Active); // Report change for power monitoring (during testing)
-#ifdef HAS_AIROHA_SOFT_RTC
+#ifdef HAS_AIROHA_SLEEP
         if (oldState != GPS_HARDSLEEP && oldState != GPS_OFF)
-            airohaEnterSoftRtcSleep(); // Airoha: must precede the power cut, while it can still hear us
+            airohaEnterSleep(); // Airoha: must precede the power cut, while it can still hear us
 #endif
         writePinRFEN(false);             // External RF front-end: off
         writePinStandby(true);           // Standby (pin): asleep (not awake)
@@ -1225,9 +1311,9 @@ void GPS::setPowerState(GPSPowerState newState, uint32_t sleepTime)
     case GPS_OFF:
         assert(sleepTime == 0);                                     // This is an indefinite sleep
         powerMon->clearState(meshtastic_PowerMon_State_GPS_Active); // Report change for power monitoring (during testing)
-#ifdef HAS_AIROHA_SOFT_RTC
+#ifdef HAS_AIROHA_SLEEP
         if (oldState != GPS_HARDSLEEP && oldState != GPS_OFF)
-            airohaEnterSoftRtcSleep(); // Airoha: must precede the power cut, while it can still hear us
+            airohaEnterSleep(); // Airoha: must precede the power cut, while it can still hear us
 #endif
         writePinRFEN(false);     // External RF front-end: off
         writePinStandby(true);   // Standby (pin): asleep
@@ -1256,6 +1342,11 @@ void GPS::writePinEN(bool on)
 void GPS::writePinStandby(bool standby)
 {
 #ifdef PIN_GPS_STANDBY // Specifically the standby pin for L76B, L76K and clones
+#ifdef GPS_STANDBY_IS_RTC_INT
+    // RTC_INT must rest low on an Airoha fit; the Airoha sleep code pulses it.
+    if (IS_ONE_OF(gnssModel, GNSS_MODEL_AG3335, GNSS_MODEL_AG3352))
+        return;
+#endif
     bool val;
     if (standby)
         val = GPS_STANDBY_ACTIVE;
@@ -1368,26 +1459,48 @@ void GPS::setPowerUBLOX(bool on, uint32_t sleepMs)
     }
 }
 
-// Park an Airoha receiver in software RTC mode, so an RTC_INT pulse can wake it once VCC is cut.
-void GPS::airohaEnterSoftRtcSleep()
+// With RTC_INT or a reset wake, park the receiver in backup mode so a pulse can wake it once VCC is cut;
+// without either, only stop the GNSS engine.
+void GPS::airohaEnterSleep()
 {
-#ifdef HAS_AIROHA_SOFT_RTC
-    // Only an Airoha receiver understands PAIR650; a probe that fell back must not be talked at.
+#ifdef HAS_AIROHA_SLEEP
+    // Only an Airoha receiver understands PAIR commands; a probe that fell back must not be talked at.
     if (!IS_ONE_OF(gnssModel, GNSS_MODEL_AG3335, GNSS_MODEL_AG3352) || airohaSleepMisses >= AIROHA_SLEEP_MAX_MISSES)
         return;
 
+#if defined(HAS_AIROHA_SOFT_RTC) || defined(HAS_AIROHA_RESET_WAKE)
+    const char *sleepCmd = "$PAIR650,0*25\r\n";
+    const char *sleepAck = "$PAIR001,650,0";
+#else
+    const char *sleepCmd = "$PAIR003*39\r\n";
+    const char *sleepAck = "$PAIR001,003,0";
+#endif
+#ifdef HAS_AIROHA_SOFT_RTC
     const uint32_t start = Time::getMillis();
     do {
-        _serial_gps->write("$PAIR650,0*25\r\n");
-        if (getACK("$PAIR001,650,0", AIROHA_SLEEP_ACK_MS) == GNSS_RESPONSE_OK) {
+        _serial_gps->write(sleepCmd);
+        if (getACK(sleepAck, AIROHA_SLEEP_ACK_MS) == GNSS_RESPONSE_OK) {
             airohaSleepMisses = 0;
             return;
         }
         // Only start another attempt while a whole ack window still fits inside the budget.
     } while (Throttle::isWithinTimespanMs(start, AIROHA_SLEEP_BUDGET_MS - AIROHA_SLEEP_ACK_MS));
+#else
+    // No $PAIR382 first: it locks the CPU out of sleep, the opposite of what we want here.
+    for (uint8_t attempt = 0; attempt < AIROHA_SLEEP_ATTEMPTS; attempt++) {
+        airohaWriteIdleInt(_serial_gps, sleepCmd);
+        const bool acked = getACK(sleepAck, AIROHA_SLEEP_ACK_MS) == GNSS_RESPONSE_OK;
+        if (acked || airohaWentQuiet(_serial_gps)) {
+            LOG_DEBUG("GPS: %.8s took (%s, attempt %u)", sleepCmd, acked ? "acked" : "NMEA stopped", attempt + 1);
+            airohaSleepMisses = 0;
+            delay(AIROHA_SLEEP_SETTLE_MS);
+            return;
+        }
+    }
+#endif
 
     airohaSleepMisses++;
-    LOG_WARN("GPS: no ack for $PAIR650 (%u/%u); may not wake from hardware RTC mode", airohaSleepMisses, AIROHA_SLEEP_MAX_MISSES);
+    LOG_WARN("GPS: %.8s did not take (%u/%u)", sleepCmd, airohaSleepMisses, AIROHA_SLEEP_MAX_MISSES);
 #endif
 }
 
@@ -1431,6 +1544,10 @@ void GPS::down()
         bool softsleepSupported = true;
 #else
         bool softsleepSupported = false;
+#endif
+#ifdef GPS_STANDBY_IS_RTC_INT
+        if (IS_ONE_OF(gnssModel, GNSS_MODEL_AG3335, GNSS_MODEL_AG3352))
+            softsleepSupported = false;
 #endif
         // U-blox is supported via PMREQ
         if (IS_ONE_OF(gnssModel, GNSS_MODEL_UBLOX6, GNSS_MODEL_UBLOX7, GNSS_MODEL_UBLOX8, GNSS_MODEL_UBLOX9, GNSS_MODEL_UBLOX10))
@@ -1787,7 +1904,7 @@ GnssModel_t GPS::probe(int serialSpeed)
     }
     case 3: {
         /* Airoha (Mediatek) AG3335A/M/S, A3352Q, Quectel L89 2.0, SimCom SIM65M */
-        wakeAirohaForActiveProbe(_serial_gps);
+        sendAirohaWakeCommand(_serial_gps);
         _serial_gps->write("$PAIR062,2,0*3C\r\n"); // GSA OFF to reduce volume
         _serial_gps->write("$PAIR062,3,0*3D\r\n"); // GSV OFF to reduce volume
         _serial_gps->write("$PAIR513*3D\r\n");     // save configuration
@@ -1795,6 +1912,9 @@ GnssModel_t GPS::probe(int serialSpeed)
                                         {"AG3352", "$PAIR021,AG3352", GNSS_MODEL_AG3352},
                                         {"RYS3520", "$PAIR021,REYAX_RYS3520_V2", GNSS_MODEL_AG3352}};
         PROBE_FAMILY("Airoha Family", "$PAIR021*39", airoha, 1000);
+#ifdef GPS_STANDBY_IS_RTC_INT
+        writePinStandby(false); // the RTC_INT wake pulse left a shared standby pin low
+#endif
         currentDelay = 20;
         currentStep = 4;
         return GNSS_MODEL_UNKNOWN;
@@ -1934,6 +2054,7 @@ GnssModel_t GPS::getProbeResponse(unsigned long timeout, const std::vector<ChipI
         bufferSize = 2048;
 
     auto response = std::unique_ptr<char[]>(new char[bufferSize]); // Dynamically allocate based on baud rate
+    response[0] = '\0';
     uint16_t responseLen = 0;
     unsigned long start = millis();
     while (millis() - start < timeout) {
