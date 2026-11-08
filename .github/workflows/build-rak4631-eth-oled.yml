@@ -1,0 +1,19 @@
+name: Build RAK4631 Ethernet + OLED (v2.8.2)
+
+on:
+  push:
+    branches:
+      - custom/rak4631-eth-oled-v2.8.2
+    paths:
+      - .github/workflows/build-rak4631-eth-oled.yml
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  firmware:
+    uses: ./.github/workflows/build_firmware.yml
+    with:
+      version: 2.8.2.d5f1619-oled
+      pio_env: rak4631_eth_gw
+      platform: nrf52840
