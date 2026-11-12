@@ -578,7 +578,7 @@ void InkHUD::T5MenuTask::type(char c)
     typed = next;
     if (shift == T5Keyboard::Shift::ONCE)
         shift = T5Keyboard::Shift::OFF;
-    requestUpdate();
+    requestUpdate(EInk::UpdateTypes::FAST); // Keystrokes stay FAST, as in the composer
 }
 
 void InkHUD::T5MenuTask::backspace()
@@ -586,7 +586,7 @@ void InkHUD::T5MenuTask::backspace()
     if (typed.empty())
         return;
     typed.pop_back();
-    requestUpdate();
+    requestUpdate(EInk::UpdateTypes::FAST);
 }
 
 void InkHUD::T5MenuTask::toggleShift()
@@ -599,7 +599,7 @@ void InkHUD::T5MenuTask::toggleShift()
     else
         shift = shift == T5Keyboard::Shift::ONCE ? T5Keyboard::Shift::OFF : T5Keyboard::Shift::ONCE;
     lastShiftTapMs = now;
-    requestUpdate();
+    requestUpdate(EInk::UpdateTypes::FAST);
 }
 
 // DONE writes and returns; CANCEL discards. The write itself belongs to the model
@@ -708,7 +708,7 @@ bool InkHUD::T5MenuTask::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
             return true;
         case T5Keyboard::Key::LAYER:
             layer = layer == T5Keyboard::Layer::LETTERS ? T5Keyboard::Layer::SYMBOLS : T5Keyboard::Layer::LETTERS;
-            requestUpdate();
+            requestUpdate(EInk::UpdateTypes::FAST);
             return true;
         case T5Keyboard::Key::SEND:
             // The keyboard's commit key. An empty field cannot be committed: the admin path would

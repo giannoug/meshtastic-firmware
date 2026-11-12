@@ -800,6 +800,89 @@ static void test_update_counters_count_panel_updates()
 }
 #endif
 
+// The point on the composer's LETTERS keyboard that types ch, found by asking the hit test itself
+static bool keyPoint(char ch, int16_t *px, int16_t *py)
+{
+    const bool console = t5CurrentMode() == T5Mode::CONSOLE;
+    const int16_t top = console ? InkHUD::T5Keyboard::CONSOLE_ROWS_TOP : InkHUD::T5Keyboard::CARRY_ROWS_TOP;
+    InkHUD::InkHUD *hud = InkHUD::InkHUD::getInstance();
+    for (int16_t y = top + 6; y < hud->height(); y += 6)
+        for (int16_t x = 6; x < hud->width(); x += 6) {
+            const InkHUD::T5Keyboard::Key k =
+                InkHUD::T5Keyboard::hit(console, InkHUD::T5Keyboard::Layer::LETTERS, InkHUD::T5Keyboard::Shift::OFF, x, y);
+            if (k.kind == InkHUD::T5Keyboard::Key::CHAR && tolower((unsigned char)k.ch) == ch) {
+                *px = x;
+                *py = y;
+                return true;
+            }
+        }
+    return false;
+}
+
+// One pass of the Renderer thread alone: the keystroke path, without waking every other thread's timers
+static void runRenderer()
+{
+    for (int i = 0; i < concurrency::mainController.size(false); i++) {
+        Thread *t = concurrency::mainController.get(i);
+        if (t && t->ThreadName == "Renderer") {
+            t->run();
+            return;
+        }
+    }
+    TEST_FAIL_MESSAGE("No Renderer thread");
+}
+
+// Taps that land before the Renderer thread runs share one frame, as on the device
+static void typeKeys(const std::string &text, size_t perFrame = 1)
+{
+    for (size_t i = 0; i < text.size(); i += perFrame) {
+        for (size_t b = i; b < i + perFrame && b < text.size(); b++) {
+            int16_t x, y;
+            TEST_ASSERT_TRUE(keyPoint(text[b], &x, &y));
+            InkHUD::InkHUD::getInstance()->touchTap(x, y);
+        }
+        runRenderer();
+    }
+}
+
+// Keystrokes in T5ComposeTask::onTouchPoint() must ask for FAST, and the T5 display resilience in
+// nicheGraphics.h (setDisplayResilience(7, 0)) must let a whole typing run owe only one FULL.
+// A FULL on the ED047TC1 is a ~1 s CLEAR_SLOW that blocks the main loop, touch polling included, so:
+// - an UNSPECIFIED keystroke turned every eighth key into a FULL, and taps made during it were lost;
+// - FAST keystrokes under the old stress multiplier (1.5) piled up debt with every key, so a long draft
+//   made each of the next dozens of navigation frames a FULL instead.
+// Pinned: no FULL while typing, exactly one on the screen change that leaves the composer, and the
+// navigation after that back to FAST.
+static void test_typing_stays_fast_and_owes_one_full()
+{
+    InkHUD::InkHUD *hud = InkHUD::InkHUD::getInstance();
+    t5SetMode(T5Mode::CARRY);
+    resetUi();
+    dismissBootScreens();
+    InkHUD::T5ComposeTask::openReply(Convo::forPeer(KB7X));
+    runRenderer();
+
+    uint32_t full = hud->fullUpdates, fast = hud->fastUpdates;
+    const std::string text = "meet at the hut at five, bring rope.";
+    typeKeys(text);
+    TEST_ASSERT_EQUAL_UINT32(full, hud->fullUpdates);
+    TEST_ASSERT_EQUAL_UINT32(fast + text.size(), hud->fastUpdates);
+
+    full = hud->fullUpdates;
+    InkHUD::T5ComposeTask::get()->onExitShort(); // Home: back to the conversation, keeping the draft
+    runRenderer();
+    TEST_ASSERT_FALSE(InkHUD::T5ComposeTask::taskOpen());
+    TEST_ASSERT_EQUAL_UINT32(full + 1, hud->fullUpdates);
+
+    full = hud->fullUpdates;
+    InkHUD::T5MessagesApplet::open();
+    runRenderer();
+    TEST_ASSERT_EQUAL_UINT32(full, hud->fullUpdates);
+
+    InkHUD::T5MessageModel::get()->clearDraft(Convo::forPeer(KB7X));
+    resetUi();
+}
+
 static void test_messy_screens()
 {
     dataset = "messy";
@@ -827,6 +910,7 @@ void setup()
     RUN_TEST(test_mode_cells_hit_what_they_draw);
     RUN_TEST(test_pairing_pin_picker_writes_the_mode_not_the_pin);
     RUN_TEST(test_menu_rules_follow_the_frozen_frames);
+    RUN_TEST(test_typing_stays_fast_and_owes_one_full);
     RUN_TEST(test_terminal_screens);
 #endif
     exit(UNITY_END());

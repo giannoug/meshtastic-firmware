@@ -1056,7 +1056,8 @@ bool InkHUD::T5ComposeTask::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
     case T5Keyboard::Key::NONE:
         return true; // The header, the context band and the field are not targets
     }
-    requestUpdate();
+    // FAST, as the stock keyboard does: the FULL a keystroke would otherwise take every eighth key is ~1 s
+    requestUpdate(EInk::UpdateTypes::FAST);
     return true;
 }
 
