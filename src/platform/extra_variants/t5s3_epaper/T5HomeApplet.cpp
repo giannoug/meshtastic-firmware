@@ -1,0 +1,675 @@
+#if defined(T5_S3_EPAPER_PRO) && defined(MESHTASTIC_INCLUDE_INKHUD)
+
+#include "./T5HomeApplet.h"
+#include "./T5ComposeTask.h"
+#include "./T5ConversationApplet.h"
+#include "./T5MenuApplet.h"
+#include "./T5MessagesApplet.h"
+#include "./T5NodesApplet.h"
+#include "./T5SystemLayer.h"
+
+#include "BluetoothStatus.h"
+#include "DisplayFormatters.h"
+#include "GPSStatus.h"
+#include "PowerStatus.h"
+#include "UptimeClock.h"
+#include "airtime.h"
+#include "gps/RTC.h"
+#include "graphics/niche/InkHUD/SystemApplet.h"
+#include "mesh/Channels.h"
+#include "mesh/MeshRadio.h"
+#include "mesh/NodeDB.h"
+
+#include <algorithm>
+
+using namespace NicheGraphics;
+
+namespace
+{
+
+// Seconds since a stored message, or -1 if its timestamp can't be compared with
+// now
+int32_t ageSecs(const StoredMessage &m)
+{
+    const uint32_t now = m.isBootRelative ? Time::getUptimeSecs() : getValidTime(RTCQuality::RTCQualityDevice, true);
+    return (now && now >= m.timestamp) ? now - m.timestamp : -1;
+}
+} // namespace
+
+void InkHUD::T5HomeApplet::begin()
+{
+    InkHUD *hud = InkHUD::getInstance();
+    Persistence::Settings &saved = hud->persistence->settings;
+
+    // T5 applets are appended after the shared applets, so their saved indices
+    // are untouched. Settings saved before a T5 applet existed have it inactive;
+    // all must be available, and Home shown at boot.
+    // The menu is in this list for a second reason as well: it holds slot 8, which used to register
+    // the shared Favorites Map, so the one saved value that can be stale for a native screen is its
+    // own. Forcing it active here is what keeps a file written before this change from leaving the
+    // MENU cell struck through.
+    // autoshow is forced off for all of them: no T5 screen ever takes the foreground on its own, the
+    // foreground changes only when the user navigates, and autoshow is gated on the saved flag rather
+    // than on the applet being active - so a stale true from slot 8's old registration, or from the
+    // shared Auto-show page on another firmware, must not be able to seize the screen.
+    for (const char *name :
+         {"Home", "Nodes", "Node Detail", "Messages", "Conversation", "Map", "Apps", T5MenuApplet::APPLET_NAME}) {
+        const int8_t i = indexOf(name);
+        assert(i >= 0);
+        saved.userApplets.active[i] = true;
+        saved.userApplets.autoshow[i] = false;
+        if (!hud->userApplets[i]->isActive())
+            hud->userApplets[i]->activate();
+    }
+
+    // Native Messaging is the only messaging UI on T5, so the shared messaging
+    // applets are made inactive here rather than removed: an inactive applet
+    // cannot be shown and is not offered by the App Switcher, and leaving them
+    // registered keeps every saved applet index valid, so no settings migration
+    // is needed (Messaging Final 34). Done where saved settings are already
+    // loaded, so neither a file written before native Messaging existed nor
+    // anything the shared Menu set can bring one back.
+    // The native map is the only user-facing map on T5, and the shared map surfaces are retired the same
+    // way: inactive, so none can be shown, offered by the App Switcher or reached from a geofence
+    // notification, and with autoshow cleared too, because autoshow is gated on the saved flag rather
+    // than on the applet being active - a position packet must never take the foreground (Map 12, D6).
+    // Waypoints are out of v1 and go with them. Their registrations stay, so no saved index moves.
+    for (const char *name : {"All Messages", "DMs", "Channel 0", "Channel 1", "Positions", "Waypoints"}) {
+        const int8_t i = indexOf(name);
+        if (i < 0)
+            continue;
+        saved.userApplets.active[i] = false;
+        saved.userApplets.autoshow[i] = false;
+        if (hud->userApplets[i]->isActive())
+            hud->userApplets[i]->deactivate();
+    }
+
+    const int8_t index = indexOf("Home");
+    assert(index >= 0);
+
+    // Which applet each tile was showing is persisted by index, and slot 8 now means the menu where
+    // it used to mean the shared Favorites Map. The menu is a destination the user navigates to and
+    // never the screen the device boots into, so a saved reference to that slot is rewritten to Home
+    // - which also covers a shutdown that happened with the menu open.
+    const int8_t menuIndex = indexOf(T5MenuApplet::APPLET_NAME);
+    if (menuIndex >= 0) {
+        for (uint8_t t = 0; t < Persistence::MAX_TILES_GLOBAL; t++) {
+            if (saved.userTiles.displayedUserApplet[t] == (uint8_t)menuIndex)
+                saved.userTiles.displayedUserApplet[t] = (uint8_t)index;
+        }
+    }
+
+    // Every native screen is a full-screen composition with frozen pixel geometry - the menu's
+    // Console tile grid and its page splits are fixed values, not fractions of the tile it is given -
+    // so T5 runs exactly one user tile. Pinned here, where saved settings have just been loaded over
+    // the addApplet() defaults, so neither a file written by other firmware on this flash nor the
+    // shared Layout page can split the screen under a native screen.
+    saved.userTiles.maxCount = 1;
+    if (saved.userTiles.count != 1) {
+        saved.userTiles.count = 1;
+        saved.userTiles.focused = 0;
+        hud->updateLayout(); // Rebuild the tiles InkHUD::begin() just made from the stale count
+    }
+
+    if (!hud->userApplets[index]->isForeground()) {
+        saved.userTiles.focused = 0;
+        hud->showApplet(index, EInk::UpdateTypes::UNSPECIFIED, true);
+    }
+
+    // Every surface that shows messaging state registers with the model, which
+    // tells them when it moves
+    T5MessageModel *model = T5MessageModel::get();
+    assert(model);
+    model->attach(static_cast<T5HomeApplet *>(hud->userApplets[indexOf("Home")]));
+    model->attach(static_cast<T5MessagesApplet *>(hud->userApplets[indexOf("Messages")]));
+    model->attach(static_cast<T5ConversationApplet *>(hud->userApplets[indexOf("Conversation")]));
+}
+
+InkHUD::T5HomeApplet::T5HomeApplet() : concurrency::OSThread("T5HomeApplet")
+{
+    OSThread::disable();
+}
+
+void InkHUD::T5HomeApplet::onActivate()
+{
+    OSThread::enabled = true;
+    OSThread::setIntervalFromNow(60 * 1000UL);
+}
+
+void InkHUD::T5HomeApplet::onDeactivate()
+{
+    OSThread::disable();
+}
+
+// The model moved. Home only shows counts and the latest message, so a redraw
+// is due only while Home is the screen and nothing is covering it (System UI
+// R2).
+void InkHUD::T5HomeApplet::onMessagingChanged()
+{
+    const T5SystemLayer *system = T5SystemLayer::getIfBegun();
+    if (isForeground() && !(system && system->coversContent()) && !T5MessageModel::taskIsForeground())
+        requestUpdate();
+}
+
+// While shown, redraw on each minute boundary: the finest step of anything Home
+// shows (clock, ages, 60 s channel load). Skipped while a system surface covers
+// content: our redraw would erase it while it still takes input, and the change
+// is one only we can see (System UI R2). Whatever closes that surface
+// re-renders everything, so nothing is lost.
+int32_t InkHUD::T5HomeApplet::runOnce()
+{
+    const T5SystemLayer *system = T5SystemLayer::getIfBegun();
+    if (isForeground() && !(system && system->coversContent()))
+        requestUpdate(); // UNSPECIFIED: DisplayHealth folds the FULL refreshes the panel owes into these
+    return (60 - getValidTime(RTCQuality::RTCQualityDevice, true) % 60) * 1000UL;
+}
+
+std::string InkHUD::T5HomeApplet::senderName(NodeNum num)
+{
+    meshtastic_NodeInfoLite *node = nodeDB->getMeshNode(num);
+    return node ? parseShortName(node) : hexifyNodeNum(num);
+}
+
+const StoredMessage *InkHUD::T5HomeApplet::latestIncoming(bool dmOnly)
+{
+    // The cache also holds broadcasts on channels with no active ThreadedMessageApplet, which never reach the store
+    const StoredMessage &m = (latestMessage->wasBroadcast && !dmOnly) ? latestMessage->broadcast : latestMessage->dm;
+    if (m.sender && messageStore.isMessageVisible(m))
+        return &m;
+
+    // Cached message hidden (sender ignored since): newest visible incoming one in the store, which is oldest first
+    const std::deque<StoredMessage> &stored = messageStore.getLiveMessages();
+    for (auto it = stored.rbegin(); it != stored.rend(); ++it) {
+        if (it->sender && it->sender != nodeDB->getNodeNum() && (!dmOnly || it->type == MessageType::DM_TO_US) &&
+            messageStore.isMessageVisible(*it))
+            return &*it;
+    }
+    return nullptr;
+}
+
+InkHUD::T5HomeApplet::Status InkHUD::T5HomeApplet::readStatus()
+{
+    Status s;
+    const NodeNum ourNum = nodeDB->getNodeNum();
+
+    meshtastic_NodeInfoLite *ourNode = nodeDB->getMeshNode(ourNum);
+    if (ourNode)
+        s.shortName = parseShortName(ourNode);
+    s.nodeId = hexifyNodeNum(ourNum);
+    s.clock = getTimeString(); // Empty until the RTC is valid
+
+    // The protocol name with underscores as spaces; unset reads NOT SET (Panel Fit D16)
+    s.region = "NOT SET";
+    if (myRegion && config.lora.region != meshtastic_Config_LoRaConfig_RegionCode_UNSET) {
+        s.region = myRegion->name;
+        std::replace(s.region.begin(), s.region.end(), '_', ' ');
+    }
+    s.preset = DisplayFormatters::getModemPresetDisplayName(config.lora.modem_preset, false, config.lora.use_preset);
+
+    // No fix type is available (TinyGPS custom fields are compiled out), so only lock and satellites are shown
+    if (config.position.gps_mode != meshtastic_Config_PositionConfig_GpsMode_ENABLED || !gpsStatus->getIsConnected())
+        s.gps = "GPS OFF";
+    else if (gpsStatus->getHasLock())
+        s.gps = "GPS FIX \xB7 " + to_string(gpsStatus->getNumSatellites());
+    else
+        s.gps = "GPS NO FIX";
+
+    if (!config.bluetooth.enabled)
+        s.bt = "BT OFF";
+    else if (bluetoothStatus->getConnectionState() == meshtastic::BluetoothStatus::ConnectionState::CONNECTED)
+        s.bt = "BT LINKED";
+    else
+        s.bt = "BT ON";
+
+    // Percentage of the last 60 seconds the channel was busy
+    if (airTime)
+        s.channelUtil = roundf(airTime->channelUtilizationPercent());
+
+    std::vector<meshtastic_NodeInfoLite *> heard;
+    for (size_t i = 0; i < nodeDB->getNumMeshNodes(); i++) {
+        meshtastic_NodeInfoLite *node = nodeDB->getMeshNodeByIndex(i);
+        if (node->num == ourNum)
+            continue;
+        s.nodes++;
+        if (node->has_hops_away) {
+            if (node->hops_away == 0)
+                s.direct++;
+            else if (node->hops_away == 1)
+                s.oneHop++;
+            else
+                s.multiHop++;
+        }
+        if (heardRecently(node))
+            heard.push_back(node);
+    }
+    std::sort(heard.begin(), heard.end(),
+              [](const meshtastic_NodeInfoLite *a, const meshtastic_NodeInfoLite *b) { return a->last_heard > b->last_heard; });
+    s.heardCount = heard.size();
+
+    // The same reading of a node as its T5 Nodes row: distance, hops and the session signal the bars need
+    const int8_t nodesIndex = indexOf("Nodes");
+    assert(nodesIndex >= 0);
+    T5NodesApplet *nodes = static_cast<T5NodesApplet *>(inkhud->userApplets[nodesIndex]);
+    for (meshtastic_NodeInfoLite *node : heard) {
+        if (s.heard.size() == 6)
+            break;
+        s.heard.push_back(nodes->readRow(node));
+    }
+
+    s.latest = latestIncoming();
+    if (s.latest) {
+        const StoredMessage &m = *s.latest;
+        s.latestKind = m.type == MessageType::DM_TO_US ? "DM" : parse(channels.getName(m.channelIndex));
+        s.latestSender = senderName(m.sender);
+        meshtastic_NodeInfoLite *sender = nodeDB->getMeshNode(m.sender);
+        if (nodeInfoLiteHasUser(sender)) {
+            // Drop what the font can't draw (emoji, variation selectors): parse() marks each with a SUB, which prints as a box
+            std::string name = parse(sender->long_name);
+            name.erase(std::remove(name.begin(), name.end(), '\x1A'), name.end());
+            s.latestSenderLong = name.substr(0, name.find_last_not_of(' ') + 1); // All-emoji name: empty, so join() skips it
+        }
+        if (!m.isBootRelative)
+            s.latestClock = getTimeString(m.timestamp);
+        s.latestText = parse(MessageStore::getText(m));
+    }
+
+    uint16_t channel0LastHour = 0;
+    for (const StoredMessage &m : messageStore.getLiveMessages()) {
+        const int32_t age = ageSecs(m);
+        if (m.type == MessageType::BROADCAST && m.channelIndex == 0 && age >= 0 && age < 60 * 60 &&
+            messageStore.isMessageVisible(m))
+            channel0LastHour++;
+    }
+    s.channel0Title = join("Channel 0", parse(channels.getName(0)));
+    s.channel0Subtitle = to_string(channel0LastHour) + (channel0LastHour == 1 ? " message this hour" : " messages this hour");
+
+    if (const StoredMessage *dm = latestIncoming(true)) {
+        const int32_t age = ageSecs(*dm);
+        s.dmSubtitle = join(senderName(dm->sender), age >= 0 ? agoString(age) : "");
+    }
+
+    if (T5MessageModel *model = T5MessageModel::get()) {
+        s.unread = model->unread();
+        s.unreadChannel0 = model->unread(Convo::forChannel(0));
+        s.unreadDMs = model->unreadDMs();
+    }
+
+    return s;
+}
+
+void InkHUD::T5HomeApplet::onRender(bool full)
+{
+    (void)full;
+    const Status s = readStatus();
+    if (isConsole())
+        renderConsole(s);
+    else
+        renderCarry(s);
+}
+
+// Word-wrapped onto at most `lines` lines placed by baseline (Panel Fit G1: pitch is cap + descender, no
+// leading), the last ending in an ellipsis when text is left over
+void InkHUD::T5HomeApplet::printClipped(int16_t left, int16_t firstBaseline, uint16_t w, uint8_t lines, int16_t pitch,
+                                        const std::string &text)
+{
+    AppletFont font = getFont();
+    const std::vector<std::string> wrapped = t5WrapLines(*this, text, w);
+    for (size_t i = 0; i < wrapped.size() && i < lines; i++) {
+        std::string line = wrapped[i];
+        if (i + 1 == lines && wrapped.size() > lines)
+            line = t5Elide(*this, line + " " + wrapped[i + 1], w);
+        printAt(left, firstBaseline + (int16_t)i * pitch - font.heightAboveCursor(), line);
+    }
+}
+
+// Title, subtitle, and an inverted "N NEW" pill while the conversation has unseen messages
+void InkHUD::T5HomeApplet::drawConversation(int16_t left, int16_t top, uint16_t w, const std::string &title,
+                                            const std::string &subtitle, uint16_t unseen)
+{
+    const bool console = isConsole();
+    const int16_t padX = console ? 12 : 13;
+    const int16_t padY = console ? 6 : 7;
+
+    setFont(fontSmall);
+    int16_t pillW = 0;
+    if (unseen) {
+        const std::string pill = to_string(unseen) + " NEW";
+        const int16_t pillTop = top + (console ? 18 : 22);
+        pillW = getTextWidth(pill) + 2 * padX;
+        fillRect(left + w - pillW, pillTop, pillW, fontSmall.lineHeight() + 2 * padY, BLACK);
+        setTextColor(WHITE);
+        printBold(left + w - padX, pillTop + padY, pill, RIGHT);
+        setTextColor(BLACK);
+    }
+
+    const int16_t textW = w - (unseen ? pillW + 8 : 0);
+    setCrop(left, top, textW, console ? 88 : 84);
+    printAt(left, top + (console ? 50 : 54), t5Elide(*this, subtitle, textW));
+    setFont(fontMedium);
+    printBold(left, top + (console ? 8 : 12), t5Elide(*this, title, textW > 2 ? textW - 2 : 0)); // 2 px of faux bold
+    resetCrop();
+}
+
+// "⇄ CONSOLE" or "⇄ CARRY". The fonts have no ⇄ glyph, so the arrows are drawn
+void InkHUD::T5HomeApplet::drawModeControl(int16_t x, int16_t y, uint16_t w, uint16_t h)
+{
+    constexpr int16_t arrowW = 20, arrowH = 16, gap = 10, head = 4;
+    const std::string label = isConsole() ? "CARRY" : "CONSOLE";
+
+    setFont(fontSmall);
+    const int16_t left = x + (w - (arrowW + gap + getTextWidth(label))) / 2;
+    const int16_t upper = y + (h - arrowH) / 2 + head;
+    const int16_t lower = upper + arrowH - 2 * head;
+
+    drawRect(x, y, w, h, BLACK);
+    drawLine(left, upper, left + arrowW, upper, BLACK); // Right-pointing
+    drawLine(left + arrowW, upper, left + arrowW - head, upper - head, BLACK);
+    drawLine(left + arrowW, upper, left + arrowW - head, upper + head, BLACK);
+    drawLine(left, lower, left + arrowW, lower, BLACK); // Left-pointing
+    drawLine(left, lower, left + head, lower - head, BLACK);
+    drawLine(left, lower, left + head, lower + head, BLACK);
+    printAt(left + arrowW + gap, y + h / 2, label, LEFT, MIDDLE);
+}
+
+// One Carry heard row (C1): short name over long name, the meta value and the signal bars at the right edge
+void InkHUD::T5HomeApplet::drawHeardRow(int16_t left, int16_t top, uint16_t w, const T5NodesApplet::Row &row)
+{
+    const int16_t right = left + w;
+    // Distance when we can compute it, otherwise how far away the node is in hops
+    const std::string meta = row.distance.empty() ? (row.hops < 0 ? "" : hopsString(row.hops)) : row.distance;
+    setFont(fontSmall);
+    const int16_t metaW = meta.empty() ? 0 : getTextWidth(meta) + 1 + 12; // 1 px bold, then the gap
+    setFont(fontMedium);
+    setCrop(left, top, w - SIGNAL_W - 12, 84);
+    printBold(left, top + 12, row.shortName);
+    setFont(fontSmall);
+    // The long name shares its line with the distance: elided short of it, never under it
+    printAt(left, top + 54, t5Elide(*this, row.longName, std::max<int16_t>(0, std::min<int16_t>(w - SIGNAL_W - 12, w - metaW))));
+    resetCrop();
+
+    printBold(right, top + 48, meta, RIGHT);
+    if (row.signal != SIGNAL_UNKNOWN)
+        drawSignal(right - SIGNAL_W, top + 14 + SIGNAL_H, row.signal);
+    drawLine(left, top + 83, right - 1, top + 83, BLACK);
+}
+
+void InkHUD::T5HomeApplet::renderCarry(const Status &s)
+{
+    const int16_t right = width() - MARGIN;
+    const uint16_t innerW = width() - 2 * MARGIN;
+
+    // Identity: short name and node id left, battery and clock right, on baseline 50. When they do not
+    // fit 16 px apart, the node id drops, then "CHG", then the short name steps down (Panel Fit D8)
+    std::string power = powerLabel(false);
+    bool showId = true, largeName = true;
+    auto fits = [&]() {
+        int16_t left = MARGIN + textW(largeName ? fontLarge : fontMedium, s.shortName) + 1; // 1 px bold
+        if (showId)
+            left += 12 + textW(fontSmall, s.nodeId);
+        return left + 16 + textW(fontMedium, join(power, s.clock)) + 1 <= right;
+    };
+    if (!fits())
+        showId = false;
+    if (!fits())
+        power = power.substr(0, power.find(" \xB7 ")); // The percentage stays
+    if (!fits())
+        largeName = false;
+
+    AppletFont nameFont = largeName ? fontLarge : fontMedium;
+    setFont(nameFont);
+    printBold(MARGIN, 50 - nameFont.heightAboveCursor(), s.shortName);
+    const int16_t nameRight = MARGIN + getTextWidth(s.shortName) + 1;
+    setFont(fontMedium);
+    printBold(right, 50 - fontMedium.heightAboveCursor(), join(power, s.clock), RIGHT);
+    setFont(fontSmall);
+    if (showId)
+        printAt(nameRight + 12, 50 - 19, s.nodeId); // Small caps end 19 px below the print top
+    for (int16_t x = 0; x < width(); x += 2)
+        drawPixel(x, 75, BLACK);
+
+    // Status band. Wider than the screen, the GPS chip drops its satellite count first (Panel Fit D16)
+    std::string gps = s.gps;
+    {
+        int16_t rowW = 0;
+        for (const std::string &chip : {"LORA " + s.region, gps, s.bt})
+            rowW += (rowW ? 25 : 0) + getTextWidth(chip) + 1; // 12 + rule + 12 between chips, 1 px bold
+        if (rowW > width() - 2 * MARGIN)
+            gps = gps.substr(0, gps.find(" \xB7 "));
+    }
+    int16_t x = MARGIN;
+    for (const std::string &chip : {"LORA " + s.region, gps, s.bt}) {
+        if (x > MARGIN) {
+            drawLine(x, 86, x, 112, BLACK);
+            x += 12;
+        }
+        printBold(x, 99 - fontSmall.lineHeight() / 2, chip);
+        x += getTextWidth(chip) + 12;
+    }
+    drawLine(0, 119, width() - 1, 119, BLACK);
+
+    // Unread: latest message, then the channel and DM conversations
+    printBold(MARGIN, 128, "UNREAD");
+    printBold(right, 128, to_string(s.unread), RIGHT);
+    if (s.latest) {
+        drawRect(MARGIN, 152, innerW, 116, BLACK);
+        drawRect(MARGIN + 1, 153, innerW - 2, 114, BLACK);
+        printAt(MARGIN + 12, 160, join(join(s.latestKind, s.latestSender), s.latestClock));
+        // Panel Fit D6: medium regular, two lines on baselines 218 / 252, x 28, width 452
+        setFont(fontMedium);
+        printClipped(MARGIN + 12, 218, innerW - 24, 2, 34, s.latestText);
+    }
+    drawLine(MARGIN, 288, right - 1, 288, BLACK);
+    drawConversation(MARGIN, 288, innerW, s.channel0Title, s.channel0Subtitle, s.unreadChannel0);
+    drawLine(MARGIN, 372, right - 1, 372, BLACK);
+    drawConversation(MARGIN, 372, innerW, "Direct messages", s.dmSubtitle, s.unreadDMs);
+    drawLine(MARGIN, 456, right - 1, 456, BLACK);
+
+    // Heard: three most recent
+    setFont(fontSmall);
+    printBold(MARGIN, 468, "HEARD \xB7 10 MIN");
+    printBold(right, 468, to_string(s.heardCount), RIGHT);
+    for (uint8_t i = 0; i < 3 && i < s.heard.size(); i++)
+        drawHeardRow(MARGIN, 496 + i * 84, innerW, s.heard[i]);
+
+    drawModeControl(right - 168, navTop() - 1 - 17 - 50, 168, 50);
+    drawNav();
+}
+
+void InkHUD::T5HomeApplet::renderConsole(const Status &s)
+{
+    const int16_t right = width() - MARGIN;
+
+    // Status line. When it does not fit with 16 px between the name group and the chips, things give way
+    // in the frozen order; the percentage and the clock never do (Panel Fit D8)
+    std::string nodeId = s.nodeId;
+    std::string lora = "LORA " + s.region + " " + s.preset;
+    std::string batt = powerLabel(true);
+    std::string bt = s.bt;
+    bool largeName = true;
+    auto chips = [&]() {
+        std::vector<std::string> list;
+        for (const std::string &chip : {lora, s.gps, bt, batt, s.clock}) {
+            if (!chip.empty())
+                list.push_back(chip);
+        }
+        return list;
+    };
+    auto fits = [&]() {
+        int16_t used = MARGIN + textW(largeName ? fontLarge : fontMedium, s.shortName) + 1; // 1 px bold
+        if (!nodeId.empty())
+            used += 14 + textW(fontSmall, nodeId);
+        used += 16 - 25; // The gap, less the separator the first chip doesn't have
+        for (const std::string &chip : chips())
+            used += 25 + textW(fontSmall, chip) + 1; // 12 + rule + 12
+        return used <= right;
+    };
+    if (!fits())
+        nodeId.clear();
+    if (!fits())
+        lora = "LORA " + s.region;
+    if (!fits())
+        batt = powerLabel(true, false);
+    if (!fits())
+        batt = batt.substr(0, batt.find(" \xB7 ")); // CHG
+    if (!fits() && batt.rfind("BATT ", 0) == 0)
+        batt = batt.substr(5);
+    if (!fits())
+        largeName = false;
+    if (!fits())
+        bt.clear();
+
+    AppletFont nameFont = largeName ? fontLarge : fontMedium;
+    setFont(nameFont);
+    const int16_t nameTop = (CONSOLE_BAND - (nameFont.heightAboveCursor() + nameFont.heightBelowCursor())) / 2;
+    const int16_t nameRight = MARGIN + getTextWidth(s.shortName) + 1;
+    printBold(MARGIN, nameTop, s.shortName);
+    const int16_t baseline = nameTop + nameFont.heightAboveCursor();
+
+    setFont(fontSmall);
+    if (!nodeId.empty())
+        printAt(nameRight + 14, baseline - 19, nodeId);
+    int16_t x = right;
+    const std::vector<std::string> list = chips();
+    for (auto chip = list.rbegin(); chip != list.rend(); ++chip) {
+        printBold(x, 41 - 19, *chip, RIGHT); // Baseline 41
+        x -= getTextWidth(*chip) + 1 + 12;
+        drawLine(x, 16, x, 47, BLACK);
+        x -= 12;
+    }
+    drawLine(0, CONSOLE_BAND, width() - 1, CONSOLE_BAND, BLACK);
+
+    // Latest message
+    if (s.latest) {
+        printBold(MARGIN, 76, join("LATEST", s.latestKind));
+        setCrop(MARGIN, 113, 354, fontSmall.heightAboveCursor() + fontSmall.heightBelowCursor());
+        printAt(MARGIN, 113, join(join(s.latestSender, s.latestSenderLong), s.latestClock));
+        resetCrop();
+        for (int16_t dx = 0; dx < 330; dx += 2)
+            drawPixel(MARGIN + dx, 146, BLACK);
+        setFont(fontLarge);
+        printClipped(MARGIN, 192, 330, 2, 45, s.latestText); // D6: Console LATEST large, baselines 192 / 237
+        setFont(fontSmall);
+    }
+    for (int16_t y = 72; y < 296; y += 2) {
+        drawPixel(386, y, BLACK);
+        drawPixel(648, y, BLACK);
+    }
+
+    // Mesh counters: single-line label / value rows
+    constexpr int16_t meshLeft = 404, meshW = 228, rowH = 31;
+    const std::pair<const char *, std::string> counters[] = {
+        {"NODES", to_string(s.nodes)},          {"HEARD 10M", to_string(s.heardCount)},
+        {"DIRECT", to_string(s.direct)},        {"VIA 1 HOP", to_string(s.oneHop)},
+        {"VIA 2+ HOPS", to_string(s.multiHop)}, {"CH UTIL 60S", to_string(s.channelUtil) + "%"},
+    };
+    printBold(meshLeft, 76, "MESH");
+    for (uint8_t i = 0; i < 6; i++) {
+        const int16_t top = 109 + i * rowH;
+        printAt(meshLeft, top + 2, counters[i].first);
+        printBold(meshLeft + meshW, top + 2, counters[i].second, RIGHT);
+        drawLine(meshLeft, top + rowH - 1, meshLeft + meshW - 1, top + rowH - 1, BLACK);
+    }
+
+    // Heard: six most recent
+    constexpr int16_t heardLeft = 666, heardW = 246;
+    printBold(heardLeft, 76, "HEARD \xB7 10 MIN");
+    printBold(heardLeft + heardW, 76, to_string(s.heardCount), RIGHT);
+    for (uint8_t i = 0; i < s.heard.size(); i++) {
+        const int16_t top = 105 + i * rowH;
+        const T5NodesApplet::Row &row = s.heard[i];
+        printBold(heardLeft, top + 2, row.shortName);
+        const int16_t infoW = heardW - getTextWidth(row.shortName) - 2 - 12; // Stops short of the bold short name
+        printAt(heardLeft + heardW, top + 2,
+                t5Elide(*this, join(row.distance, row.hops < 0 ? "" : hopsString(row.hops)), std::max<int16_t>(0, infoW)), RIGHT);
+        drawLine(heardLeft, top + rowH - 1, heardLeft + heardW - 1, top + rowH - 1, BLACK);
+    }
+
+    // Unread pair
+    drawLine(0, 303, width() - 1, 303, BLACK);
+    drawConversation(MARGIN, 316, 436, s.channel0Title, s.channel0Subtitle, s.unreadChannel0);
+    for (int16_t y = 312; y < 408; y += 2)
+        drawPixel(464, y, BLACK);
+    drawConversation(482, 316, 430, "Direct messages", s.dmSubtitle, s.unreadDMs);
+
+    drawModeControl(navWidth() + (CONSOLE_SLOT_W - 120) / 2, navTop() + (NAV_H - 46) / 2, 120, 46);
+    drawNav();
+}
+
+bool InkHUD::T5HomeApplet::onTouchPoint(uint16_t x, uint16_t y, bool longPress)
+{
+    if (longPress)
+        return true; // No T5 screen assigns a long press, and the stock fallback would open the shared menu
+
+    // Touch points are in display space; drawing is relative to our tile
+    const int16_t tx = x - getTile()->getLeft();
+    const int16_t ty = y - getTile()->getTop();
+
+    if (handleNavTap(tx, ty))
+        return true;
+
+    // The frozen Home transitions: the latest-message card and the channel card
+    // open that conversation, and "Direct messages" opens the newest DM, or the
+    // DM empty state when there is none. Nothing routes into a shared messaging
+    // applet (Messaging Final 13).
+    if (isConsole()) {
+        if (tx >= navWidth() && ty >= navTop())
+            t5ToggleMode();
+        else if (ty >= 76 && ty < 292 && tx >= 666)
+            openDestination(NODES);
+        else if (ty >= 72 && ty < 296 && tx < 386)
+            openLatest();
+        else if (ty >= 316 && ty < 408)
+            tx < 464 ? openChannel0() : openDirect();
+    } else {
+        if (ty >= navTop() - 68 && ty < navTop() - 18 && tx >= width() - MARGIN - 168 && tx < width() - MARGIN) // Mode control
+            t5ToggleMode();
+        else if (ty >= 468 && ty < 748)
+            openDestination(NODES);
+        else if (ty >= 152 && ty < 288)
+            openLatest();
+        else if (ty >= 288 && ty < 372)
+            openChannel0();
+        else if (ty >= 372 && ty < 456)
+            openDirect();
+    }
+
+    // Consume every tap: the button fallback would cycle applets
+    return true;
+}
+
+// The unread card: the conversation the latest visible message belongs to
+void InkHUD::T5HomeApplet::openLatest()
+{
+    T5MessageModel *model = T5MessageModel::get();
+    const StoredMessage *m = latestIncoming();
+    if (model && m)
+        T5MessagesApplet::open(model->convoOf(*m));
+    else
+        T5MessagesApplet::open();
+}
+
+void InkHUD::T5HomeApplet::openChannel0()
+{
+    T5MessagesApplet::open(Convo::forChannel(0));
+}
+
+// The newest DM conversation, or the frozen DM empty state when there is none.
+// An invalid Convo is what the Messages root reads as "the DM placeholder",
+// which is exactly where this lands (Messaging Final 12).
+void InkHUD::T5HomeApplet::openDirect()
+{
+    T5MessageModel *model = T5MessageModel::get();
+    if (!model) {
+        T5MessagesApplet::open();
+        return;
+    }
+    for (const Convo &c : model->conversations()) {
+        if (!c.isChannel()) {
+            T5MessagesApplet::open(c);
+            return;
+        }
+    }
+    T5MessagesApplet::open(Convo());
+}
+
+#endif

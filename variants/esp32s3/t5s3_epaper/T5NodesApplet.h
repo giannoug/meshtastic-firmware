@@ -1,0 +1,87 @@
+#ifdef MESHTASTIC_INCLUDE_INKHUD
+
+/*
+
+T5 Nodes: every known node, most recently heard first, in pages above the T5 nav.
+One applet, two compositions picked from the live dimensions: Carry (two-line rows) and Console (table).
+
+*/
+
+#pragma once
+
+#include "configuration.h"
+
+#include "./T5Applet.h"
+
+#include "mesh/MeshModule.h"
+
+namespace NicheGraphics::InkHUD
+{
+
+class T5NodesApplet : public T5Applet, public MeshModule
+{
+  public:
+    T5NodesApplet() : MeshModule("T5NodesApplet") { hideFromAppSwitcher = true; } // Reached from the NODES nav cell
+
+    void onActivate() override;
+    void onDeactivate() override;
+    void onBackground() override;
+    void onRender(bool full) override;
+    bool onTouchPoint(uint16_t x, uint16_t y, bool longPress) override;
+    void onNavUp() override;
+    void onNavDown() override;
+
+    bool wantPacket(const meshtastic_MeshPacket *p) override;
+    ProcessMessage handleReceived(const meshtastic_MeshPacket &mp) override;
+
+    // One node, as Nodes and Node detail show it. Strings are already parse()d, and empty when unknown
+    struct Row {
+        std::string shortName, longName, distance, bearing, snr;
+        std::string rssi;       // Only with signal: a direct reception this session
+        int32_t heardSecs = -1; // -1: never heard with a valid clock
+        int16_t hops = -1;      // -1: unknown
+        int16_t degrees = -1;   // Bearing from us; -1: no valid positions
+        SignalStrength signal = SIGNAL_UNKNOWN;
+    };
+
+    Row readRow(meshtastic_NodeInfoLite *node);
+
+    // Messaging Final 05: the recipient picker's ALL NODES row opens this same
+    // list in pick mode, where a row tap addresses the composer instead of
+    // opening Node detail, the header becomes the way back to the picker, and the
+    // nav bar goes away because a task owns the screen. Normal behaviour is
+    // untouched whenever pick mode is not running.
+    static bool openPickMode(); // Show the list as the picker's ALL NODES page
+    // In pick mode the compose task holds the input claim, so swipes arrive there
+    // and are handed back here
+    static void pageDown();
+    static void pageUp();
+
+  private:
+    Destination currentDestination() override { return NODES; }
+
+    struct Reception {
+        NodeNum from;
+        SignalStrength signal;
+        int32_t rssi;
+    };
+
+    uint8_t rowsPerPage() { return isConsole() ? 4 : 9; }
+    int16_t rowsTop() { return isConsole() ? 98 : 80; }
+    uint8_t rowHeight() { return isConsole() ? 78 : 84; }
+
+    std::vector<meshtastic_NodeInfoLite *> sortedNodes();
+    void renderCarry(const std::vector<Row> &rows, uint16_t nodes, uint16_t heard);
+    void renderConsole(const std::vector<Row> &rows, uint16_t nodes, uint16_t heard, uint16_t direct);
+    void drawPickHeader(); // "< PICK RECIPIENT", in place of the NODES header and
+                           // its sort control
+
+    bool picking = false;           // Standing in for the recipient picker
+    std::vector<Reception> signals; // Last direct radio reception of each node, this session
+    std::vector<NodeNum> shown;     // Nodes on screen, top to bottom: what a row tap opens
+    uint16_t firstRow = 0;          // List index of the top row on screen
+};
+
+} // namespace NicheGraphics::InkHUD
+
+#endif
