@@ -139,6 +139,12 @@ Drivers::EInk::UpdateTypes InkHUD::DisplayHealth::prioritize(Drivers::EInk::Upda
 // Hopefully an applet will want to render before this, meaning we can cancel the maintenance.
 int32_t InkHUD::DisplayHealth::runOnce()
 {
+    // The image is being held as a snapshot. It has not changed, so an unprovoked refresh would repay debt
+    // the panel never incurred, and would redraw a frame the user is deliberately being shown as frozen.
+    // Leave the debt exactly as it is and look again shortly; maintenance resumes once the hold lifts.
+    if (InkHUD::getInstance()->isRenderHeld())
+        return MAINTENANCE_MS_INITIAL;
+
     if (debt > 0.0) {
         LOG_DEBUG("debt=%f: performing maintenance", debt);
 

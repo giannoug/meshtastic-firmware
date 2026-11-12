@@ -40,6 +40,7 @@ class InkHUD
 {
   public:
     using TouchEnabledProvider = bool (*)();
+    using RenderHoldProvider = bool (*)();
 
     static InkHUD *getInstance(); // Access to this singleton class
 
@@ -57,6 +58,21 @@ class InkHUD
     void setTouchEnabledProvider(TouchEnabledProvider provider);
     bool hasTouchEnabledProvider() const;
     bool isTouchEnabled() const;
+
+    // Optional render hold, for variants which want to freeze the UI while the display sleeps.
+    // While the provider returns true the current image is retained as a snapshot: user applets do not
+    // render, their update requests stay pending, autoshow does not run, and nothing clears the
+    // framebuffer. System applets still render, as layers drawn over the held image. Without a provider
+    // there is no hold, and rendering behaves exactly as it always has.
+    void setRenderHoldProvider(RenderHoldProvider provider);
+    bool isRenderHeld() const;
+
+    // Set by a variant which draws its own notification, pairing, touch-status and shutdown / reboot
+    // surfaces, and must not have the shared ones appear as well. The applets are still created, so
+    // nothing that looks them up by name has to change; they simply never come to the foreground, and
+    // LogoApplet stops drawing the shutdown and reboot screens. The boot splash is unaffected.
+    // Default false: every other board behaves exactly as before.
+    bool replacesStockSystemSurfaces = false;
 
     // Handle user-button press
     // - connected to an input source, in variant nicheGraphics.h
@@ -93,7 +109,8 @@ class InkHUD
     void closeKeyboard();
     void nextTile();
     void prevTile();
-    bool showApplet(uint8_t appletIndex);
+    bool showApplet(uint8_t appletIndex, Drivers::EInk::UpdateTypes updateType = Drivers::EInk::UpdateTypes::FAST,
+                    bool all = false);
     bool selectTileAt(uint16_t x, uint16_t y);
     void rotate();
     void rotateJoystick(uint8_t angle = 1); // rotate 90 deg by default
@@ -112,6 +129,7 @@ class InkHUD
     void forceUpdate(Drivers::EInk::UpdateTypes type = Drivers::EInk::UpdateTypes::UNSPECIFIED, bool all = false,
                      bool async = true);
     void awaitUpdate();
+    bool isUpdating(); // Non-blocking: is the panel still driving the previous update?
 
     // (Re)configuring WindowManager
 
@@ -137,6 +155,8 @@ class InkHUD
     // Shared data which persists between boots
     Persistence *persistence = nullptr;
 
+    uint32_t fastUpdates = 0, fullUpdates = 0; // Panel updates sent, by type
+
   private:
     InkHUD() {} // Constructor made private to force use of InkHUD::getInstance
 
@@ -144,6 +164,7 @@ class InkHUD
     Renderer *renderer = nullptr;           // Co-ordinate display updates
     WindowManager *windowManager = nullptr; // Multiplexing of applets
     TouchEnabledProvider touchEnabledProvider = nullptr;
+    RenderHoldProvider renderHoldProvider = nullptr;
 };
 
 } // namespace NicheGraphics::InkHUD

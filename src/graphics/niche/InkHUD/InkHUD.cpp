@@ -186,6 +186,19 @@ bool InkHUD::InkHUD::isTouchEnabled() const
     return touchEnabledProvider();
 }
 
+void InkHUD::InkHUD::setRenderHoldProvider(RenderHoldProvider provider)
+{
+    renderHoldProvider = provider;
+}
+
+bool InkHUD::InkHUD::isRenderHeld() const
+{
+    if (!renderHoldProvider)
+        return false;
+
+    return renderHoldProvider();
+}
+
 // Call this when your user button gets a short press
 // Should be connected to an input source in nicheGraphics.h (NicheGraphics::Inputs::TwoButton?)
 void InkHUD::InkHUD::shortpress()
@@ -422,9 +435,9 @@ void InkHUD::InkHUD::prevTile()
     windowManager->prevTile();
 }
 
-bool InkHUD::InkHUD::showApplet(uint8_t appletIndex)
+bool InkHUD::InkHUD::showApplet(uint8_t appletIndex, EInk::UpdateTypes updateType, bool all)
 {
-    return windowManager->showApplet(appletIndex);
+    return windowManager->showApplet(appletIndex, updateType, all);
 }
 
 bool InkHUD::InkHUD::selectTileAt(uint16_t x, uint16_t y)
@@ -477,6 +490,11 @@ void InkHUD::InkHUD::forceUpdate(EInk::UpdateTypes type, bool all, bool async)
 void InkHUD::InkHUD::awaitUpdate()
 {
     renderer->awaitUpdate();
+}
+
+bool InkHUD::InkHUD::isUpdating()
+{
+    return renderer->isUpdating();
 }
 
 // Ask the window manager to potentially bring a different user applet to foreground

@@ -34,6 +34,9 @@ void InkHUD::NotificationApplet::showNotification(const Notification &n)
     if (!settings->optionalFeatures.notifications)
         return;
 
+    if (inkhud->replacesStockSystemSurfaces)
+        return; // The variant draws its own notification surface
+
     dismiss();
     hasNotification = true;
     currentNotification = n;

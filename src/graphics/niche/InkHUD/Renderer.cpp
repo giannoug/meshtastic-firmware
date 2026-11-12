@@ -103,6 +103,14 @@ void InkHUD::Renderer::forceUpdate(Drivers::EInk::UpdateTypes type, bool all, bo
 }
 
 // Wait for any in-progress display update to complete before continuing
+// Whether the panel is still working through the previous update. awaitUpdate() blocks until it is not;
+// this only asks, for callers which have to stay responsive - such as a touch gate that may not arm a
+// new surface until its refresh has actually finished.
+bool InkHUD::Renderer::isUpdating()
+{
+    return driver->busy();
+}
+
 void InkHUD::Renderer::awaitUpdate()
 {
     if (driver->busy()) {
@@ -208,9 +216,19 @@ void InkHUD::Renderer::render(bool async)
     // or exclusive rights to render
     checkLocks();
 
+    // Ask the variant whether the image is currently being held as a snapshot.
+    // Sampled once, so every step below agrees with itself even if the hold lifts partway through.
+    held = inkhud->isRenderHeld();
+
+    // A held image is the snapshot: re-rendering everything would wipe it.
+    // The variant issues its own render-all when the hold lifts, rebuilding the frame from live state.
+    if (held)
+        renderAll = false;
+
     // (Potentially) change applet to display new info,
     // then check if this newly displayed applet makes a pending notification redundant
-    inkhud->autoshow();
+    if (!held)
+        inkhud->autoshow();
 
     // If an update is justified.
     // We don't know this until after autoshow has run, as new applets may now be in foreground
@@ -236,6 +254,7 @@ void InkHUD::Renderer::render(bool async)
 
         // Tell display to begin process of drawing new image
         LOG_INFO("Updating display");
+        (updateType == Drivers::EInk::UpdateTypes::FULL ? inkhud->fullUpdates : inkhud->fastUpdates)++;
         driver->update(imageBuffer, updateType);
 
         // If not async, wait here until the update is complete
@@ -371,6 +390,10 @@ bool InkHUD::Renderer::shouldUpdate()
         }
     }
 
+    // Held: user applet requests stay pending, to be drawn when the image is next rebuilt
+    if (held)
+        return should;
+
     // via user applet
     for (Applet *ua : inkhud->userApplets) {
         if (ua                     // Tile has valid applet
@@ -395,9 +418,9 @@ Drivers::EInk::UpdateTypes InkHUD::Renderer::decideUpdateType()
 
     // No need to consider the "requests" if somebody already forced an update
     if (!forced) {
-        // User applets
+        // User applets - not while held, since they are not being drawn
         for (Applet *ua : inkhud->userApplets) {
-            if (ua && ua->isForeground() && (ua->wantsToRender() || renderAll))
+            if (!held && ua && ua->isForeground() && (ua->wantsToRender() || renderAll))
                 displayHealth.requestUpdateType(ua->wantsUpdateType());
         }
         // System Applets
@@ -414,8 +437,9 @@ Drivers::EInk::UpdateTypes InkHUD::Renderer::decideUpdateType()
 // Pixel output is placed into the framebuffer, ready for handoff to the EInk driver
 void InkHUD::Renderer::renderUserApplets()
 {
-    // Don't render user applets if a system applet has demanded the whole display to itself
-    if (lockRendering)
+    // Don't render user applets if a system applet has demanded the whole display to itself,
+    // or if the variant is holding the current image as a snapshot
+    if (lockRendering || held)
         return;
 
     // Render any user applets which are currently visible
@@ -465,9 +489,10 @@ void InkHUD::Renderer::renderSystemApplets()
 
         assert(sa->getTile());
 
-        // Clear the tile unless the applet wants to draw over its previous render
-        // or everything is getting re-rendered anyways
-        if (sa->wantsFullRender() && !renderAll)
+        // Clear the tile unless the applet wants to draw over its previous render,
+        // or everything is getting re-rendered anyways,
+        // or the applet occupies only part of its tile and blanks that part itself
+        if (sa->wantsFullRender() && !renderAll && !sa->clearsOwnRegion)
             clearTile(sa->getTile());
 
         // uint32_t start = millis();
@@ -483,8 +508,9 @@ void InkHUD::Renderer::renderSystemApplets()
 // In this case, we will fill the empty space with diagonal lines.
 void InkHUD::Renderer::renderPlaceholders()
 {
-    // Don't fill empty space with placeholders if a system applet wants exclusive use of the display
-    if (lockRendering)
+    // Don't fill empty space with placeholders if a system applet wants exclusive use of the display,
+    // or if the variant is holding the current image as a snapshot
+    if (lockRendering || held)
         return;
 
     // Ask the window manager which tiles are empty
