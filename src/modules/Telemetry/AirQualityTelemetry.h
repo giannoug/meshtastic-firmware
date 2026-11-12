@@ -18,6 +18,11 @@
 #include <OLEDDisplay.h>
 #include <OLEDDisplayUi.h>
 
+class AirQualityTelemetryModule;
+/// The one instance, as EnvironmentTelemetryModule already publishes its own. Null when the
+/// module was not built or not enabled.
+extern AirQualityTelemetryModule *airQualityTelemetryModule;
+
 class AirQualityTelemetryModule : private concurrency::OSThread,
                                   public ScanI2CConsumer,
                                   public BaseTelemetryModule,
@@ -32,6 +37,7 @@ class AirQualityTelemetryModule : private concurrency::OSThread,
         : concurrency::OSThread("AirQualityTelemetry"), ScanI2CConsumer(),
           ProtobufModule("AirQualityTelemetry", meshtastic_PortNum_TELEMETRY_APP, &meshtastic_Telemetry_msg)
     {
+        airQualityTelemetryModule = this;
         lastMeasurementPacket = nullptr;
         nodeStatusObserver.observe(&nodeStatus->onNewStatus);
         setIntervalFromNow(10 * 1000);

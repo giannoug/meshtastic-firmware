@@ -24,6 +24,8 @@
 #include "graphics/ScreenFonts.h"
 #include <Throttle.h>
 
+PowerTelemetryModule *powerTelemetryModule = nullptr;
+
 static constexpr uint16_t TX_HISTORY_KEY_POWER_TELEMETRY = 0x8005;
 
 namespace graphics
@@ -229,6 +231,12 @@ bool PowerTelemetryModule::getPowerTelemetry(meshtastic_Telemetry *m)
     if (max17048Sensor.hasSensor())
         valid = max17048Sensor.getMetrics(m);
 #endif
+
+    // Retain what we just measured, before any caller decides what to do with it. This is the one
+    // place these sensors are read, so it is the one place a local reading can be recorded, and
+    // m->time above is the measurement's own timestamp.
+    if (valid)
+        recordLocalMeasurement(*m);
 
     return valid;
 }

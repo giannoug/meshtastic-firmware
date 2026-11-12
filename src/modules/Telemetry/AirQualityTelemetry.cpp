@@ -40,6 +40,8 @@ static constexpr uint16_t TX_HISTORY_KEY_AIR_QUALITY_TELEMETRY = 0x8004;
 #endif
 #if __has_include(<Seeed_HM330X.h>)
 #include "Sensor/HM330XSensor.h"
+
+AirQualityTelemetryModule *airQualityTelemetryModule = nullptr;
 #endif
 
 void AirQualityTelemetryModule::i2cScanFinished(ScanI2C *i2cScanner)
@@ -441,6 +443,12 @@ bool AirQualityTelemetryModule::getAirQualityTelemetry(meshtastic_Telemetry *m)
         valid = valid || sensor_get;
         hasSensor = true;
     }
+
+    // Retain what we just measured, before any caller decides what to do with it. This is the one
+    // place these sensors are read, so it is the one place a local reading can be recorded, and
+    // m->time above is the measurement's own timestamp.
+    if (valid && hasSensor)
+        recordLocalMeasurement(*m);
 
     return valid && hasSensor;
 }
