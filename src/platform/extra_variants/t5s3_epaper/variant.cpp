@@ -4,26 +4,110 @@
 #ifdef T5_S3_EPAPER_PRO
 
 #include "Observer.h"
+#include "PowerFSM.h"
 #include "Wire.h"
 #include "buzz.h"
 #include "concurrency/OSThread.h"
 #include "input/InputBroker.h"
 #include "input/TouchScreenImpl1.h"
 #include "main.h"
+#include "mesh/Default.h"
 #include "mesh/Throttle.h"
+#include "meshUtils.h"
 #include "sleep.h"
 #include "touch/TouchDrvGT911.hpp"
+#include <atomic>
 #include <cstring>
 
 #ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
 #include "graphics/niche/InkHUD/InkHUD.h"
 #include "graphics/niche/InkHUD/Persistence.h"
 #include "graphics/niche/InkHUD/SystemApplet.h"
+#include "graphics/niche/Utils/FlashData.h"
+
+#include "modules/ExternalNotificationModule.h"
+
+#include "T5Applet.h"
+#include "T5AppsApplet.h"
+#include "T5MenuApplet.h"
+#include "T5MenuTask.h"
+#include "T5MessageModel.h"
+#include "T5SystemLayer.h"
+#ifdef T5_INKHUD_SCREENSHOT
+#include "T5Screenshot.h"
+#endif
+
+#ifdef T5_INKHUD_TOUCH_CALIBRATION
+// Optional touch calibration overlay (-D T5_INKHUD_TOUCH_CALIBRATION): crosshair + coordinates at the last tap.
+// Renders only on full re-renders (never clears its fullscreen tile) and skips drawing after a rotation change.
+class TouchCalibrationApplet : public NicheGraphics::InkHUD::SystemApplet
+{
+  public:
+    // Nav cell 1-6 as T5Applet hit-tests it, or 0 in the Console mode slot
+    static int navCell(int16_t x, uint16_t w, uint16_t h)
+    {
+        const uint16_t navW = w > h ? w - NicheGraphics::InkHUD::T5Applet::CONSOLE_SLOT_W : w;
+        return x < navW ? x * 6 / navW + 1 : 0;
+    }
+
+    static void mark(int16_t tx, int16_t ty)
+    {
+        using namespace NicheGraphics::InkHUD;
+        static TouchCalibrationApplet *applet = nullptr;
+        auto *inkhud = InkHUD::getInstance();
+        if (!applet) {
+            applet = new TouchCalibrationApplet;
+            applet->name = "TouchCalibration";
+            (new Tile)->assignApplet(applet);
+            applet->activate();
+            applet->bringToForeground();
+            inkhud->systemApplets.push_back(applet);
+        }
+        applet->getTile()->setRegion(0, 0, inkhud->width(), inkhud->height());
+        applet->x = tx;
+        applet->y = ty;
+        applet->markedRotation = inkhud->persistence->settings.rotation;
+        LOG_INFO("T5 touch cal: (%d, %d) in %ux%u, nav cell %d/6", tx, ty, inkhud->width(), inkhud->height(),
+                 navCell(tx, inkhud->width(), inkhud->height()));
+        inkhud->forceUpdate(NicheGraphics::Drivers::EInk::UpdateTypes::FAST, true, true);
+    }
+
+    void onRender(bool full) override
+    {
+        (void)full;
+        if (markedRotation != settings->rotation)
+            return; // Stale point from the previous rotation's frame
+        using NicheGraphics::InkHUD::BLACK;
+        drawLine(x - 24, y, x + 24, y, BLACK);
+        drawLine(x, y - 24, x, y + 24, BLACK);
+        char buf[40];
+        snprintf(buf, sizeof(buf), "%d,%d %dx%d c%d", x, y, width(), height(), navCell(x, width(), height()));
+        setFont(fontSmall);
+        const bool left = x < width() / 2, top = y < height() / 2;
+        printAt(left ? x + 30 : x - 30, top ? y + 30 : y - 30, buf, left ? LEFT : RIGHT, top ? TOP : BOTTOM);
+    }
+
+  private:
+    int16_t x = 0;
+    int16_t y = 0;
+    uint8_t markedRotation = 0xFF;
+};
+#endif
+
+// True while a system applet (Menu, Keyboard, App Switcher, a notification...) takes input ahead of user applets
+static bool systemAppletOwnsInput()
+{
+    for (const NicheGraphics::InkHUD::SystemApplet *sa : NicheGraphics::InkHUD::InkHUD::getInstance()->systemApplets) {
+        if (sa->handleInput)
+            return true;
+    }
+    return false;
+}
 
 // Bridges touch events from TouchScreenImpl1 directly into InkHUD,
 // bypassing the InputBroker (which is excluded in InkHUD builds).
 // Routing mirrors the mini-epaper-s3 two-way rocker pattern:
-//   - Nav left/right: prevApplet/nextApplet when idle, navUp/Down when a system applet has focus (e.g. menu)
+//   - Nav left/right: navUp/Down when a system applet has focus (e.g. menu), otherwise ignored
 //   - Nav up/down:    navUp/navDown always (menu scroll)
 //   - Tap/long-press: direct touch point dispatch (with fallback to short/long button semantics)
 class TouchInkHUDBridge : public Observer<const InputEvent *>
@@ -37,32 +121,27 @@ class TouchInkHUDBridge : public Observer<const InputEvent *>
         inkhud->persistence->settings.joystick.alignment = (4 - inkhud->persistence->settings.rotation) % 4;
 
         // Check whether a system applet (e.g. menu) is currently handling input
-        bool systemHandlingInput = false;
-        for (const NicheGraphics::InkHUD::SystemApplet *sa : inkhud->systemApplets) {
-            if (sa->handleInput) {
-                systemHandlingInput = true;
-                break;
-            }
-        }
+        const bool systemHandlingInput = systemAppletOwnsInput();
 
         switch (e->inputEvent) {
         case INPUT_BROKER_USER_PRESS:
+#ifdef T5_INKHUD_TOUCH_CALIBRATION
+            TouchCalibrationApplet::mark(e->touchX, e->touchY);
+#endif
             inkhud->touchTap(e->touchX, e->touchY);
             break;
         case INPUT_BROKER_SELECT:
             inkhud->touchLongPress(e->touchX, e->touchY);
             break;
+        // Horizontal swipes drive whichever system applet owns input, and nothing else. No T5 screen
+        // assigns one, and the stock fallback was applet cycling, which is not user-facing on T5.
         case INPUT_BROKER_LEFT:
             if (systemHandlingInput)
                 inkhud->touchNavUp();
-            else
-                inkhud->prevApplet();
             break;
         case INPUT_BROKER_RIGHT:
             if (systemHandlingInput)
                 inkhud->touchNavDown();
-            else
-                inkhud->nextApplet();
             break;
         case INPUT_BROKER_UP:
             inkhud->touchNavUp();
@@ -78,6 +157,103 @@ class TouchInkHUDBridge : public Observer<const InputEvent *>
 };
 
 static TouchInkHUDBridge touchBridge;
+
+T5Mode t5CurrentMode()
+{
+    return (NicheGraphics::InkHUD::InkHUD::getInstance()->persistence->settings.rotation % 2) ? T5Mode::CARRY : T5Mode::CONSOLE;
+}
+
+void t5SetMode(T5Mode mode)
+{
+    auto *inkhud = NicheGraphics::InkHUD::InkHUD::getInstance();
+    uint8_t &rotation = inkhud->persistence->settings.rotation;
+    if (rotation == static_cast<uint8_t>(mode))
+        return;
+
+    LOG_INFO("T5 mode: rotation %u -> %u", rotation, static_cast<uint8_t>(mode));
+    rotation = static_cast<uint8_t>(mode);
+    // No joystick.alignment sync needed: TouchInkHUDBridge re-derives it from rotation on every event.
+    inkhud->updateLayout(); // Rebuilds tiles, then queues an async FAST redraw
+    // The system layer owns its own full-screen tile, which updateLayout does not place: its region and
+    // its touch gate both follow the new orientation.
+    if (auto *layer = NicheGraphics::InkHUD::T5SystemLayer::getIfBegun())
+        layer->onModeChanged();
+    // Messaging hands its conversation between the Carry screen and the Console
+    // split, and re-places the compose task's own full-screen tile. Draft,
+    // destination and layer are applet members, so they ride the re-layout for
+    // free (Messaging Final 09).
+    NicheGraphics::InkHUD::T5MessageModel::onModeChanged();
+    // Apps keeps the open tool and its state across the rotate; only the picker's own full-screen
+    // tile has to be re-placed, exactly as the composer's does (Apps 11).
+    NicheGraphics::InkHUD::T5AppsApplet::onModeChanged();
+    // The menu keeps its section, its selection and any pending picker or confirmation across the
+    // rotate; only the page number is recomputed, because every row height changed (Menu Settings 29)
+    NicheGraphics::InkHUD::T5MenuApplet::onModeChanged();
+    NicheGraphics::InkHUD::T5MenuTask::onModeChanged();
+    // Every pixel moved. A blocking FULL merges with that queued FAST
+    // (DisplayHealth::prioritize), so the panel does exactly one FULL update and
+    // the async render finds nothing left to do.
+    inkhud->forceUpdate(NicheGraphics::Drivers::EInk::UpdateTypes::FULL, true, false);
+    // InkHUD otherwise only saves settings on clean shutdown / reboot.
+    inkhud->persistence->saveSettings();
+}
+
+void t5ToggleMode()
+{
+    t5SetMode(t5CurrentMode() == T5Mode::CARRY ? T5Mode::CONSOLE : T5Mode::CARRY);
+}
+
+// The one T5 Home action, shared by the capacitive Home key and a short BOOT press. Temporary system UI
+// takes the press through the shared EXIT path and one layer is peeled, an external notification is
+// silenced in place, otherwise T5 Home. It never confirms anything, and it never cycles applets.
+// Runs inside GT911 polling when the touch key fires, so only asynchronous requests here.
+// Callers deliver the user-input power event themselves, before deciding whether to call this at all.
+static void t5HomeAction()
+{
+    using namespace NicheGraphics::InkHUD;
+    InkHUD *inkhud = InkHUD::getInstance();
+    if (systemAppletOwnsInput()) {
+        inkhud->exitShort(); // Menu closes, Keyboard cancels, App Switcher dismisses...
+        return;
+    }
+
+    playChirp();
+    if (moduleConfig.external_notification.enabled && externalNotificationModule->nagging()) {
+        externalNotificationModule->stopNow();
+        return; // The next press goes Home
+    }
+
+    const int8_t home = T5Applet::indexOf("Home");
+    if (home >= 0 && inkhud->getActiveApplet() == inkhud->userApplets[home])
+        return; // Already there: no refresh
+    if (!inkhud->showApplet(home, NicheGraphics::Drivers::EInk::UpdateTypes::UNSPECIFIED, true))
+        inkhud->openAppSwitcher(); // Defensive: Home unavailable, still a way out
+}
+
+// Capacitive Home key
+static void t5HomeKey()
+{
+    powerFSM.trigger(EVENT_INPUT);
+    if (T5UiGate::claimWake())
+        return; // This press only woke the display
+    t5HomeAction();
+}
+
+void t5BootShortPress()
+{
+    // TwoButton has already delivered EVENT_PRESS, at button-down
+    if (T5UiGate::claimWake())
+        return; // This press only woke the display
+    t5HomeAction();
+}
+
+void t5BootLongPress()
+{
+    // No production UI action, by design. TwoButton's EVENT_PRESS has already counted the press as user
+    // activity, so the display still wakes and the screen timer still restarts; claim that wake so it is
+    // not left for a later press to consume.
+    (void)T5UiGate::claimWake();
+}
 #endif // MESHTASTIC_INCLUDE_NICHE_GRAPHICS
 
 TouchDrvGT911 touch;
@@ -102,11 +278,22 @@ volatile bool touchControllerReady = false;
 volatile bool touchLightSleepActive = false;
 volatile bool touchNeedsWake = false;
 volatile bool touchIndicatorRefreshPending = false;
+// The timeout gate skips GT911 reads, so the controller can still hold a touch or Home report from then
+volatile bool touchDrainPending = false;
+// Whether a finger is on the panel right now, and when the current contact began. A system surface that
+// appears under a finger already down must not activate from that contact (System UI G1, G2), and a tap
+// arrives at release, so the gate needs the start of the sequence, not the moment of the tap.
+volatile bool touchIsDown = false;
+volatile uint32_t touchDownAtMs = 0;
 // When the light-sleep resume happened, not when the block expires: an interval bounds a missed
 // 0-check by the settle time, where a stored deadline would block for up to half a wrap cycle.
 constexpr uint32_t TOUCH_RESUME_BLOCK_MS = 150;
 volatile uint32_t touchResumeAtMs = 0;
-volatile uint32_t touchStateEpoch = 1;
+// Set each time the timeout gate is released, i.e. once per actual wake. Claimed by the input path
+// which caused that wake, so the waking press is consumed instead of also acting. Written from the
+// PowerFSM action and read from the side-key thread and the BOOT input path, so a real atomic: the
+// claim has to be one indivisible test-and-clear, and ++ on a volatile is not a read-modify-write.
+std::atomic<bool> wakeUnclaimed{false};
 volatile bool homeCapButtonEventsEnabled = false;
 #if HAS_SCREEN
 uint32_t lastTouchIndicatorMs = 0;
@@ -202,6 +389,13 @@ class SideKeyInterruptThread : public concurrency::OSThread
 
         // Ignore side-key handling while BOOT/user button is held.
         if (digitalRead(BUTTON_PIN) == LOW) {
+#if defined(MESHTASTIC_INCLUDE_INKHUD) && defined(T5_INKHUD_SCREENSHOT)
+            // Screenshot chord: debounced side-key press while BOOT is held, before the side long-press
+            if (state == State::IRQ_PENDING && (uint32_t)(now - irqAtMs) < DEBOUNCE_MS)
+                return SAMPLE_MS;
+            if (!longPressFired && isPca9535SideKeyPressed())
+                T5Screenshot::chord();
+#endif
             resetStateAndStop();
             return OSThread::disable();
         }
@@ -228,6 +422,10 @@ class SideKeyInterruptThread : public concurrency::OSThread
                 // Fire long-press action as soon as threshold is reached, without waiting for release.
                 if (!longPressFired && (uint32_t)(now - pressStartMs) >= LONG_PRESS_MIN_MS &&
                     (uint32_t)(now - lastActionMs) >= ACTION_COOLDOWN_MS) {
+                    powerFSM.trigger(EVENT_PRESS); // User activity, like the short press
+                    // A long press always toggles the light, waking or not; claim so the wake is not
+                    // left for an unrelated later press to consume
+                    (void)T5UiGate::claimWake();
                     t5BacklightToggleUser();
                     longPressFired = true;
                     lastActionMs = now;
@@ -238,11 +436,10 @@ class SideKeyInterruptThread : public concurrency::OSThread
             // Released: if long-press already fired, do nothing. Otherwise classify short press.
             const uint32_t heldMs = now - pressStartMs;
             if (!longPressFired && heldMs >= SHORT_PRESS_MIN_MS && (uint32_t)(now - lastActionMs) >= ACTION_COOLDOWN_MS) {
-                // If timeout forced touch/backlight off, short-press acts as a wake action first.
-                if (t5TouchIsForcedByTimeout()) {
-                    t5TouchHandleUserInput();
-                    t5BacklightHandleUserInput();
-                } else {
+                // A press which woke the display only wakes. Without the event PowerFSM stays DARK and
+                // re-applies the gate on its next pass, so the event goes first and the wake is claimed after.
+                powerFSM.trigger(EVENT_PRESS);
+                if (!T5UiGate::claimWake()) {
                     toggleTouchInputEnabled();
                 }
                 lastActionMs = now;
@@ -357,33 +554,75 @@ SideKeyInterruptThread *sideKeyThread = nullptr;
 #endif
 
 #ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
-void refreshTouchIndicatorInInkHUD(bool async = true)
+// The band lives in the nav slot, so a change to it is a change to the frame.
+// Timeout keeps the explicit FAST that TouchStatus has always used; wake asks for UNSPECIFIED so that
+// DisplayHealth gets to promote the reconciling full-frame render to FULL.
+// One redraw for a lock-band change. The band itself is owned by T5SystemLayer, which has already been
+// told what changed; this only asks for the frame that shows it.
+//
+// Entering the timeout adds the band in the FAST refresh the shared TOUCH OFF strip used to consume, so
+// it costs nothing extra. Waking asks for an ordinary update instead, and renders everything: while the
+// gate was set the Renderer held the snapshot, so this one frame is the whole logical UI, rebuilt from
+// live state, with DisplayHealth free to promote it to FULL.
+void refreshTouchIndicatorInInkHUD(
+    NicheGraphics::Drivers::EInk::UpdateTypes type = NicheGraphics::Drivers::EInk::UpdateTypes::FAST, bool async = true)
 {
-    auto *inkhud = NicheGraphics::InkHUD::InkHUD::getInstance();
-    NicheGraphics::InkHUD::SystemApplet *touchStatus = nullptr;
-    for (auto *sa : inkhud->systemApplets) {
-        if (sa && sa->name && strcmp(sa->name, "TouchStatus") == 0) {
-            touchStatus = sa;
-            break;
-        }
-    }
-
-    if (touchStatus) {
-        if (inkhud->isTouchEnabled())
-            touchStatus->sendToBackground();
-        else
-            touchStatus->bringToForeground();
-    }
-
-    // Re-render all applets so touch-status visibility changes are immediately reflected.
-    inkhud->forceUpdate(NicheGraphics::Drivers::EInk::UpdateTypes::FAST, true, async);
+    NicheGraphics::InkHUD::InkHUD::getInstance()->forceUpdate(type, true, async);
 }
 #endif
 
 } // namespace
 
+// The front light survives a reboot, as the frozen DISPLAY page promises (Menu Settings 05,
+// decision 2). InkHUD's own settings are written only on a clean shutdown, so this preference has
+// its own small store - under the key and layout the shared menu already used for it, so a stored
+// value still reads. FlashData is a NicheGraphics tool and does not exist on a build without it;
+// such a build has no DISPLAY page to set the preference from either, so there the light keeps its
+// compiled-in default.
+#ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
+namespace
+{
+constexpr uint32_t T5_BACKLIGHT_PREFS_VERSION = 1;
+
+struct T5BacklightPrefs {
+    uint32_t version = T5_BACKLIGHT_PREFS_VERSION;
+    bool keepOn = true;
+};
+
+T5BacklightPrefs backlightPrefs;
+bool backlightPrefsLoaded = false;
+} // namespace
+
+bool t5BacklightLoadPreference()
+{
+    if (!backlightPrefsLoaded) {
+        T5BacklightPrefs loaded;
+        if (NicheGraphics::FlashData<T5BacklightPrefs>::load(&loaded, "t5_backlight") &&
+            loaded.version == T5_BACKLIGHT_PREFS_VERSION)
+            backlightPrefs = loaded;
+        backlightPrefsLoaded = true;
+    }
+    return backlightPrefs.keepOn;
+}
+
+static void t5BacklightStorePreference(bool enabled)
+{
+    t5BacklightLoadPreference();
+    backlightPrefs.version = T5_BACKLIGHT_PREFS_VERSION;
+    backlightPrefs.keepOn = enabled;
+    NicheGraphics::FlashData<T5BacklightPrefs>::save(&backlightPrefs, "t5_backlight");
+}
+#else
+bool t5BacklightLoadPreference()
+{
+    return true;
+}
+static void t5BacklightStorePreference(bool) {}
+#endif
+
 void t5BacklightSetUserEnabled(bool enabled)
 {
+    const bool changed = backlightUserEnabled != enabled;
     backlightUserEnabled = enabled;
     if (enabled) {
         // Manual ON should release auto-off gates.
@@ -391,6 +630,10 @@ void t5BacklightSetUserEnabled(bool enabled)
         backlightForcedBySleep = false;
     }
     applyBacklightState();
+
+    // Written once per real change, never on a render or a tick
+    if (changed)
+        t5BacklightStorePreference(enabled);
 }
 
 bool t5BacklightIsUserEnabled()
@@ -415,13 +658,6 @@ void t5BacklightSetForcedBySleep(bool forced)
     applyBacklightState();
 }
 
-void t5BacklightHandleUserInput()
-{
-    // Screen-timeout should be lifted by direct user interaction.
-    backlightForcedByTimeout = false;
-    applyBacklightState();
-}
-
 void t5TouchSetForcedByTimeout(bool forced)
 {
     if (touchForcedByTimeout == forced) {
@@ -429,8 +665,23 @@ void t5TouchSetForcedByTimeout(bool forced)
     }
 
     touchForcedByTimeout = forced;
-    touchStateEpoch++;
     touchIndicatorRefreshPending = true;
+
+#ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
+    // The band, the ASLEEP stamp and the wake reconcile all live in the system layer. Reconciling before
+    // the redraw below is what makes the wake a single correct frame rather than the stale snapshot
+    // followed by a second update.
+    if (auto *layer = NicheGraphics::InkHUD::T5SystemLayer::getIfBegun()) {
+        if (forced)
+            layer->onTimeoutGateSet();
+        else
+            layer->onTimeoutGateClear();
+    }
+#endif
+    if (!forced) {
+        touchDrainPending = true;
+        wakeUnclaimed = true; // A wake, for the press that caused it to claim
+    }
 
     if (forced) {
         // Timeout only gates touch input in software. Avoid GT911 I2C here because
@@ -442,7 +693,11 @@ void t5TouchSetForcedByTimeout(bool forced)
 
 #ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
     if (!touchLightSleepActive) {
-        refreshTouchIndicatorInInkHUD();
+        // Waking reconciles the snapshot with live state: one complete logical frame, requested as an
+        // ordinary update so DisplayHealth chooses the waveform. Never an explicit FAST, which would
+        // bypass promotion. Entering the timeout only adds the band, in TouchStatus' usual FAST budget.
+        refreshTouchIndicatorInInkHUD(forced ? NicheGraphics::Drivers::EInk::UpdateTypes::FAST
+                                             : NicheGraphics::Drivers::EInk::UpdateTypes::UNSPECIFIED);
         touchIndicatorRefreshPending = false;
     }
 #endif
@@ -453,10 +708,70 @@ bool t5TouchIsForcedByTimeout()
     return touchForcedByTimeout;
 }
 
-void t5TouchHandleUserInput()
+// ------------------------------------------------------------------ screen timeout
+//
+// The one canonical source for when the display times out. See variant.h for why PowerFSM's timed
+// transition could not be it, and what re-arms this one.
+
+namespace
 {
+// Absolute deadline, or 0 when nothing is armed. timerEndsAtMillis() never returns 0, so the
+// sentinel can never collide with a real deadline (Throttle.h)
+uint32_t screenTimeoutAtMs = 0;
+} // namespace
+
+bool t5ScreenTimeoutDisabled()
+{
+    return config.display.screen_on_secs == 0;
+}
+
+void t5ScreenTimeoutArm()
+{
+    if (t5ScreenTimeoutDisabled()) {
+        screenTimeoutAtMs = 0; // Nothing is counting, so nothing can expire
+        return;
+    }
+    screenTimeoutAtMs =
+        Time::timerEndsAtMillis(Default::getConfiguredOrDefaultMs(config.display.screen_on_secs, default_screen_on_secs));
+}
+
+// Changing the setting re-arms from now, so raising or lowering it is never also an immediate sleep:
+// the tap that changed it is the most recent thing the user did
+void t5ScreenTimeoutApply()
+{
+    t5ScreenTimeoutArm();
+}
+
+bool t5ScreenTimeoutExpired()
+{
+    return screenTimeoutAtMs != 0 && Throttle::deadlinePassed(screenTimeoutAtMs);
+}
+
+namespace T5UiGate
+{
+bool snapshotHeld()
+{
+    return touchForcedByTimeout;
+}
+
+void enterTimeout()
+{
+    t5BacklightSetForcedByTimeout(true);
+    t5TouchSetForcedByTimeout(true);
+}
+
+// Mirror of enterTimeout(): the user's own backlight and touch settings stay as they are
+void userWake()
+{
+    t5BacklightSetForcedByTimeout(false);
     t5TouchSetForcedByTimeout(false);
 }
+
+bool claimWake()
+{
+    return wakeUnclaimed.exchange(false);
+}
+} // namespace T5UiGate
 
 void t5SetHomeCapButtonEventsEnabled(bool enabled)
 {
@@ -468,6 +783,13 @@ bool isTouchInputEnabled()
     return touchInputEnabled && !touchForcedByTimeout && !touchLightSleepActive;
 }
 
+// The user's own preference alone, with neither gate folded in. The lock band has to tell a choice apart
+// from a sleeping screen, and the combined boolean above cannot (Lock and Power 01).
+bool t5TouchPreferenceEnabled()
+{
+    return touchInputEnabled;
+}
+
 void setTouchInputEnabled(bool enabled, bool showIndicator)
 {
     if (touchInputEnabled == enabled) {
@@ -477,7 +799,6 @@ void setTouchInputEnabled(bool enabled, bool showIndicator)
 
     LOG_DEBUG("touchscreen1: setTouchInputEnabled %d -> %d (showIndicator=%d)", touchInputEnabled, enabled, showIndicator);
     touchInputEnabled = enabled;
-    touchStateEpoch++;
 
     if (enabled) {
         touchNeedsWake = touchControllerReady;
@@ -499,6 +820,11 @@ void setTouchInputEnabled(bool enabled, bool showIndicator)
     }
 
 #ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
+    // Manual TOUCH OFF is not a snapshot: the app keeps rendering live under the band, and there is no
+    // stamp. The band simply follows the preference.
+    if (auto *layer = NicheGraphics::InkHUD::T5SystemLayer::getIfBegun())
+        layer->onTouchPreferenceChanged();
+
     if (showIndicator && !touchLightSleepActive) {
         refreshTouchIndicatorInInkHUD();
         touchIndicatorRefreshPending = false;
@@ -526,13 +852,10 @@ struct TouchDeepSleepObserver {
 struct TouchLightSleepObserver {
     int onLightSleep(void *)
     {
+        // No render here. Light sleep is only ever reached from the timeout gate, so the band is already
+        // on the panel and the image below it is a snapshot; entering sleep changes neither.
+        // InkHUD::Events::beforeLightSleep still waits out any update already in flight.
         touchLightSleepActive = true;
-#ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
-        // Render touch-off overlay before sleeping so user sees touch is unavailable.
-        touchIndicatorRefreshPending = true;
-        refreshTouchIndicatorInInkHUD(false);
-        touchIndicatorRefreshPending = false;
-#endif
         return 0;
     }
 
@@ -555,15 +878,9 @@ struct TouchLightSleepEndObserver {
             touchNeedsWake = false;
         }
 
-        touchStateEpoch++;
         touchResumeAtMs = Time::skipZero(Time::getMillis());
-        touchIndicatorRefreshPending = !isTouchInputEnabled();
-#ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
-        // Clear sleep-time touch overlay after wake.
-        touchIndicatorRefreshPending = true;
-        refreshTouchIndicatorInInkHUD();
-        touchIndicatorRefreshPending = false;
-#endif
+        // No render here either. Leaving light sleep is not a wake: the timeout gate is still set and
+        // the band still reads ASLEEP, so there is nothing new to draw.
         return 0;
     }
 
@@ -577,11 +894,11 @@ bool readTouch(int16_t *x, int16_t *y)
 #ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
     constexpr uint32_t TOUCH_WAKE_SUPPRESS_MS = 60;
     static uint32_t suppressFromMs = 0; // 0 = not suppressing, same reading as touchResumeAtMs
-    static uint32_t seenTouchStateEpoch = 0;
+    static bool seenTouchEnabled = false;
 
     // Reset transient gesture helpers whenever touch mode changes.
-    if (seenTouchStateEpoch != touchStateEpoch) {
-        seenTouchStateEpoch = touchStateEpoch;
+    if (const bool enabled = isTouchInputEnabled(); seenTouchEnabled != enabled) {
+        seenTouchEnabled = enabled;
         suppressFromMs = 0;
     }
 
@@ -611,6 +928,16 @@ bool readTouch(int16_t *x, int16_t *y)
     if (suppressFromMs != 0 && Throttle::isWithinTimespanMs(suppressFromMs, TOUCH_WAKE_SUPPRESS_MS)) {
         return false;
     }
+
+    // One read discards the stale report; mask Home so a press latched in the dark doesn't fire now.
+    if (touchDrainPending) {
+        touchDrainPending = false;
+        const bool homeEnabled = homeCapButtonEventsEnabled;
+        homeCapButtonEventsEnabled = false;
+        touch.getTouchPoints();
+        homeCapButtonEventsEnabled = homeEnabled;
+        return false;
+    }
 #endif
 
     if (!digitalRead(GT911_PIN_INT)) {
@@ -620,9 +947,10 @@ bool readTouch(int16_t *x, int16_t *y)
             const int16_t raw_x = static_cast<int16_t>(points.getPoint(0).x);
             const int16_t raw_y = static_cast<int16_t>(points.getPoint(0).y);
 #ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
+            auto *inkhud = NicheGraphics::InkHUD::InkHUD::getInstance();
             // Transform raw GT911 axes to visual-frame coordinates for the current display rotation.
             // rotation=3 is the physical identity (device's default orientation).
-            switch (NicheGraphics::InkHUD::InkHUD::getInstance()->persistence->settings.rotation) {
+            switch (inkhud->persistence->settings.rotation) {
             default:
             case 3:
                 *x = raw_x;
@@ -641,16 +969,40 @@ bool readTouch(int16_t *x, int16_t *y)
                 *y = (EPD_HEIGHT - 1) - raw_x;
                 break; // 90° CCW tilt
             }
+            // The above is the full 960x540 panel, but InkHUD draws into ED047TC1's 928x508 safe area, placed at
+            // physical (+16,+16) with 16 px margins on all four sides. Equal margins make the safe-area origin
+            // (16,16) in every rotation's visual frame, so one translation covers all rotations.
+            constexpr int16_t SAFE_AREA_INSET = 16;
+            if (*x < SAFE_AREA_INSET || *x >= SAFE_AREA_INSET + inkhud->width() || *y < SAFE_AREA_INSET ||
+                *y >= SAFE_AREA_INSET + inkhud->height())
+                return false; // In the margin: no InkHUD control there
+            *x -= SAFE_AREA_INSET;
+            *y -= SAFE_AREA_INSET;
 #else
             *x = raw_x;
             *y = raw_y;
 #endif
+            if (!touchIsDown) {
+                touchIsDown = true;
+                touchDownAtMs = Time::stampMillis();
+            }
             LOG_DEBUG("touched(%d/%d)", *x, *y);
             return true;
         }
     }
 
+    touchIsDown = false; // Contact ended (or never started). touchDownAtMs keeps the last start.
     return false;
+}
+
+bool t5TouchIsDown()
+{
+    return touchIsDown;
+}
+
+uint32_t t5TouchDownAtMs()
+{
+    return touchDownAtMs;
 }
 
 void variant_shutdown()
@@ -678,11 +1030,7 @@ void lateInitVariant()
                 }
                 lastHomeMs = now;
 
-                auto *inkhud = NicheGraphics::InkHUD::InkHUD::getInstance();
-                if (inkhud) {
-                    // Route through InkHUD EXIT/HOME path (menu close, etc).
-                    inkhud->exitShort();
-                }
+                t5HomeKey();
 #else
                 (void)user_data;
 #endif
@@ -692,7 +1040,6 @@ void lateInitVariant()
         touchInputEnabled = true;
         touchForcedByTimeout = false;
         touchLightSleepActive = false;
-        touchStateEpoch++;
         touchDeepSleepObserver.observer.observe(&notifyDeepSleep);
 #ifdef ARCH_ESP32
         touchLightSleepObserver.observer.observe(&notifyLightSleep);

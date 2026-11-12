@@ -27,6 +27,10 @@
 #define EVENT_FIRMWARE_UPDATE 15 // We just received a new firmware update packet from the phone
 #define EVENT_SHUTDOWN 16        // force a full shutdown now (not just sleep)
 #define EVENT_INPUT 17           // input broker wants something, we need to wake up and enable screen
+// The screen-on timeout elapsed. Raised by the board that owns its own screen timeout rather than
+// relying on a fixed timed transition, so the setting can be changed - or genuinely switched off -
+// without a reboot. No transition is registered for it unless a board asks for one.
+#define EVENT_SCREEN_TIMEOUT 18
 
 #if MESHTASTIC_EXCLUDE_POWER_FSM
 class FakeFsm

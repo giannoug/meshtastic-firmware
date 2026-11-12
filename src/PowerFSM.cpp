@@ -61,6 +61,10 @@ static bool isPowered()
 }
 
 #if defined(T5_S3_EPAPER_PRO)
+#ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
+#include "T5SystemLayer.h"
+#endif
+
 static void t5BacklightOffForSleep()
 {
     t5BacklightSetForcedBySleep(true);
@@ -71,22 +75,46 @@ static void t5BacklightWakeFromSleep()
     t5BacklightSetForcedBySleep(false);
 }
 
-static void t5BacklightOffForTimeout()
+static void t5UiGateEnterTimeout()
 {
-    t5BacklightSetForcedByTimeout(true);
-    t5TouchSetForcedByTimeout(true);
+    T5UiGate::enterTimeout();
 }
 
-static void t5BacklightOnFromUserInput()
+static void t5UiGateUserWake()
 {
-    t5BacklightHandleUserInput();
-    t5TouchHandleUserInput();
+    T5UiGate::userWake();
+}
+
+static void t5NoteBatteryEmpty()
+{
+#ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
+    NicheGraphics::InkHUD::T5SystemLayer::noteBatteryEmptyShutdown();
+#endif
+}
+
+// T5 owns its screen timeout, so this board registers no ON/POWER -> DARK timed transition. Arming
+// here matches what Fsm::make_transition does for its own timers - it re-arms every timed transition
+// leaving the state just entered - so the self-transitions on EVENT_PRESS, EVENT_INPUT and
+// EVENT_RECEIVED_MSG go on resetting the timeout exactly as they did. See variant.h.
+static constexpr bool t5OwnsScreenTimeout = true;
+static void t5ArmScreenTimeout()
+{
+    t5ScreenTimeoutArm();
+}
+static void t5CheckScreenTimeout()
+{
+    if (t5ScreenTimeoutExpired())
+        powerFSM.trigger(EVENT_SCREEN_TIMEOUT);
 }
 #else
 static void t5BacklightOffForSleep() {}
 static void t5BacklightWakeFromSleep() {}
-static void t5BacklightOffForTimeout() {}
-static void t5BacklightOnFromUserInput() {}
+static void t5UiGateEnterTimeout() {}
+static void t5UiGateUserWake() {}
+static void t5NoteBatteryEmpty() {}
+static constexpr bool t5OwnsScreenTimeout = false;
+static void t5ArmScreenTimeout() {}
+static void t5CheckScreenTimeout() {}
 #endif
 
 static void sdsEnter()
@@ -99,6 +127,8 @@ static void sdsEnter()
 static void lowBattSDSEnter()
 {
     LOG_POWERFSM("State: Lower batt SDS");
+    // The only place that knows this shutdown is the battery giving up rather than the user asking
+    t5NoteBatteryEmpty();
     doDeepSleep(Default::getConfiguredOrDefaultMs(config.power.sds_secs), false, true);
 }
 extern Power *power;
@@ -262,7 +292,7 @@ static void darkEnter()
     if (screen)
         screen->setOn(false);
     // Screen timeout enters DARK; ensure backlight also turns off.
-    t5BacklightOffForTimeout();
+    t5UiGateEnterTimeout();
 }
 
 static void serialEnter()
@@ -296,6 +326,7 @@ static void powerEnter()
         if (screen)
             screen->setOn(true);
         setBluetoothEnableUnlessRestarting();
+        t5ArmScreenTimeout();
         // within enter() the function getState() returns the state we came from
     }
 }
@@ -307,7 +338,9 @@ static void powerIdle()
         // If we got here, we are in the wrong state
         LOG_INFO("Loss of power in Powered");
         powerFSM.trigger(EVENT_POWER_DISCONNECTED);
+        return;
     }
+    t5CheckScreenTimeout();
 }
 
 static void powerExit()
@@ -322,6 +355,7 @@ static void onEnter()
     if (screen)
         screen->setOn(true);
     setBluetoothEnableUnlessRestarting();
+    t5ArmScreenTimeout();
 }
 
 static void onIdle()
@@ -330,7 +364,9 @@ static void onIdle()
     if (isPowered()) {
         // If we got here, we are in the wrong state - we should be in powered, let that state handle things
         powerFSM.trigger(EVENT_POWER_CONNECTED);
+        return;
     }
+    t5CheckScreenTimeout();
 }
 
 static void bootEnter()
@@ -376,13 +412,13 @@ void PowerFSM_setup()
     powerFSM.add_transition(&stateNB, &stateNB, EVENT_PACKET_FOR_PHONE, NULL, "Received packet, resetting win wake");
 
     // Handle press events - note: we ignore button presses when in API mode
-    powerFSM.add_transition(&stateLS, &stateON, EVENT_PRESS, t5BacklightOnFromUserInput, "Press");
-    powerFSM.add_transition(&stateNB, &stateON, EVENT_PRESS, t5BacklightOnFromUserInput, "Press");
-    powerFSM.add_transition(&stateDARK, isPowered() ? &statePOWER : &stateON, EVENT_PRESS, t5BacklightOnFromUserInput, "Press");
-    powerFSM.add_transition(&statePOWER, &statePOWER, EVENT_PRESS, t5BacklightOnFromUserInput, "Press");
-    powerFSM.add_transition(&stateON, &stateON, EVENT_PRESS, t5BacklightOnFromUserInput,
+    powerFSM.add_transition(&stateLS, &stateON, EVENT_PRESS, t5UiGateUserWake, "Press");
+    powerFSM.add_transition(&stateNB, &stateON, EVENT_PRESS, t5UiGateUserWake, "Press");
+    powerFSM.add_transition(&stateDARK, isPowered() ? &statePOWER : &stateON, EVENT_PRESS, t5UiGateUserWake, "Press");
+    powerFSM.add_transition(&statePOWER, &statePOWER, EVENT_PRESS, t5UiGateUserWake, "Press");
+    powerFSM.add_transition(&stateON, &stateON, EVENT_PRESS, t5UiGateUserWake,
                             "Press"); // reenter On to restart our timers
-    powerFSM.add_transition(&stateSERIAL, &stateSERIAL, EVENT_PRESS, t5BacklightOnFromUserInput,
+    powerFSM.add_transition(&stateSERIAL, &stateSERIAL, EVENT_PRESS, t5UiGateUserWake,
                             "Press"); // Allow button to work while in serial API
 
     // Handle critically low power battery by forcing deep sleep
@@ -402,12 +438,12 @@ void PowerFSM_setup()
     powerFSM.add_transition(&stateSERIAL, &stateSHUTDOWN, EVENT_SHUTDOWN, NULL, "Shutdown");
 
     // Inputbroker
-    powerFSM.add_transition(&stateLS, &stateON, EVENT_INPUT, t5BacklightOnFromUserInput, "Input Device");
-    powerFSM.add_transition(&stateNB, &stateON, EVENT_INPUT, t5BacklightOnFromUserInput, "Input Device");
-    powerFSM.add_transition(&stateDARK, &stateON, EVENT_INPUT, t5BacklightOnFromUserInput, "Input Device");
-    powerFSM.add_transition(&stateON, &stateON, EVENT_INPUT, t5BacklightOnFromUserInput,
+    powerFSM.add_transition(&stateLS, &stateON, EVENT_INPUT, t5UiGateUserWake, "Input Device");
+    powerFSM.add_transition(&stateNB, &stateON, EVENT_INPUT, t5UiGateUserWake, "Input Device");
+    powerFSM.add_transition(&stateDARK, &stateON, EVENT_INPUT, t5UiGateUserWake, "Input Device");
+    powerFSM.add_transition(&stateON, &stateON, EVENT_INPUT, t5UiGateUserWake,
                             "Input Device"); // restarts the sleep timer
-    powerFSM.add_transition(&statePOWER, &statePOWER, EVENT_INPUT, t5BacklightOnFromUserInput,
+    powerFSM.add_transition(&statePOWER, &statePOWER, EVENT_INPUT, t5UiGateUserWake,
                             "Input Device"); // restarts the sleep timer
 
     powerFSM.add_transition(&stateDARK, &stateON, EVENT_BLUETOOTH_PAIR, NULL, "Bluetooth pairing");
@@ -447,9 +483,17 @@ void PowerFSM_setup()
 
     powerFSM.add_transition(&stateDARK, &stateDARK, EVENT_CONTACT_FROM_PHONE, NULL, "Contact from phone");
 
+    if (t5OwnsScreenTimeout) {
+        // No timed transition: a fixed interval could neither be changed nor removed at run time, so
+        // the timeout is driven by the board's own deadline and arrives as an event
+        powerFSM.add_transition(&stateON, &stateDARK, EVENT_SCREEN_TIMEOUT, NULL, "Screen-on timeout");
+        powerFSM.add_transition(&statePOWER, &stateDARK, EVENT_SCREEN_TIMEOUT, NULL, "Screen-on timeout");
+    }
 #ifdef USE_EINK
     // Allow E-Ink devices to suppress the screensaver, if screen timeout set to 0
-    if (config.display.screen_on_secs > 0)
+    else if (config.display.screen_on_secs > 0)
+#else
+    else
 #endif
     {
         powerFSM.add_timed_transition(&stateON, &stateDARK,
