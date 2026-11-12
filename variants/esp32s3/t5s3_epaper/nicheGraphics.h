@@ -81,8 +81,9 @@ void setupNicheGraphics()
     inkhud->setDriver(driver);
 
     // Set how many FAST updates per FULL update
-    // Set how unhealthy additional FAST updates beyond this number are
-    inkhud->setDisplayResilience(7, 1.5);
+    // No extra debt past that: one CLEAR_SLOW FULL clears any run of keyboard FAST updates, and debt that grew
+    // with every keystroke would turn dozens of later navigation frames into FULL refreshes
+    inkhud->setDisplayResilience(7, 0);
 
     // Prepare fonts - use larger sizes to suit the 4.7" screen at ~234 DPI
     InkHUD::Applet::fontLarge = FREESANS_24PT_WIN1253;
