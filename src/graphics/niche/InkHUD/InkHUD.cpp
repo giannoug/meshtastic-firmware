@@ -571,4 +571,9 @@ void InkHUD::InkHUD::drawPixel(int16_t x, int16_t y, Color c)
     renderer->handlePixel(x, y, c);
 }
 
+void InkHUD::InkHUD::clearTile(Tile *t)
+{
+    renderer->clearTile(t);
+}
+
 #endif

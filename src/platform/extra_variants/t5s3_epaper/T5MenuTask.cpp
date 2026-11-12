@@ -625,7 +625,7 @@ void InkHUD::T5MenuTask::onRender(bool full)
         return;
 
     // Opaque: this layer replaces the screen, and clearsOwnRegion means nothing else blanks it
-    fillRect(0, 0, width(), height(), WHITE);
+    inkhud->clearTile(getTile());
     const Metrics m = metrics();
     switch (mode) {
     case Mode::PICKER:

@@ -1187,7 +1187,7 @@ void InkHUD::T5SystemLayer::drawButtonBand(const char *verb)
 // (System UI 11, Menu C13).
 void InkHUD::T5SystemLayer::drawTerminal()
 {
-    fillRect(0, 0, width(), height(), WHITE);
+    inkhud->clearTile(getTile());
 
     const Geometry &g = geometry();
     const bool console = width() > height();

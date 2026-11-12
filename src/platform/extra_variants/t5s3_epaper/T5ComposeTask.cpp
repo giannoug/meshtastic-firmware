@@ -959,7 +959,7 @@ void InkHUD::T5ComposeTask::onRender(bool full)
         return;
 
     // Opaque: this layer replaces the screen, and clearsOwnRegion means nothing else blanks it
-    fillRect(0, 0, width(), height(), WHITE);
+    inkhud->clearTile(getTile());
     if (mode == Mode::PICKER)
         renderPicker();
     else if (mode == Mode::COMPOSER)

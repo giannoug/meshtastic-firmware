@@ -47,6 +47,7 @@ class Renderer : protected concurrency::OSThread
 
     // Receives pixel output from an applet (via a tile, which translates the coordinates)
     void handlePixel(int16_t x, int16_t y, Color c);
+    void clearTile(Tile *t);
 
     // Size of display, in context of current rotation
 
@@ -66,7 +67,6 @@ class Renderer : protected concurrency::OSThread
     // Steps of the rendering process
 
     void clearBuffer();
-    void clearTile(Tile *t);
     void checkLocks();
     bool shouldUpdate();
     Drivers::EInk::UpdateTypes decideUpdateType();

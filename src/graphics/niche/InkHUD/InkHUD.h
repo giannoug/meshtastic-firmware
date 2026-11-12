@@ -151,6 +151,7 @@ class InkHUD
 
     // Pass drawing output to Renderer
     void drawPixel(int16_t x, int16_t y, Color c);
+    void clearTile(Tile *t); // WHITE under a whole tile, by memset: far cheaper than a tile-sized fillRect
 
     // Shared data which persists between boots
     Persistence *persistence = nullptr;

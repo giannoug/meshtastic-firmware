@@ -236,7 +236,7 @@ void InkHUD::T5TracePickTask::onRender(bool full)
         return;
 
     // Opaque: this layer replaces the screen, and clearsOwnRegion means nothing else blanks it
-    fillRect(0, 0, width(), height(), WHITE);
+    inkhud->clearTile(getTile());
     const bool console = width() > height();
     const int16_t bandH = console ? CONSOLE_HEADER_H : CARRY_HEADER_H;
     rowsShown.clear();
