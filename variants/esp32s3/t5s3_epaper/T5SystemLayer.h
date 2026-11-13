@@ -87,6 +87,9 @@ class T5SystemLayer : public SystemApplet, public concurrency::OSThread
     void onTimeoutGateClear(); // A real user wake: reconcile, then let one frame
                                // be drawn
     void onTouchPreferenceChanged();
+    // A screen or task came forward or closed. Banners held back for messaging or a task can show now, in the same
+    // frame, rather than at the next tick - until then coversContent() says covered while nothing takes the tap
+    void onForegroundChanged();
 
     // Carry <-> Console. Our tile spans the screen, and updateLayout() has just swapped its width and
     // height, so the region is re-set here. Every coordinate moved, so the gate re-arms too (G6).

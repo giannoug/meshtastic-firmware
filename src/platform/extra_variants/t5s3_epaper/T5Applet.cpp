@@ -1,6 +1,7 @@
 #if defined(T5_S3_EPAPER_PRO) && defined(MESHTASTIC_INCLUDE_INKHUD)
 
 #include "./T5Applet.h"
+#include "./T5SystemLayer.h"
 
 #include "PowerStatus.h"
 #include "graphics/niche/InkHUD/SystemApplet.h"
@@ -23,6 +24,8 @@ void InkHUD::T5Applet::onForeground()
 {
     settings->optionalFeatures.batteryIcon = false;
     inkhud->getSystemApplet("BatteryIcon")->sendToBackground();
+    if (T5SystemLayer *layer = T5SystemLayer::getIfBegun())
+        layer->onForegroundChanged();
 }
 
 // Heard within the last 10 minutes: the HEARD 10M count, on every T5 screen

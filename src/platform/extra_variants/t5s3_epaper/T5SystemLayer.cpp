@@ -277,6 +277,11 @@ void InkHUD::T5SystemLayer::reconcile()
         sendToBackground();
 }
 
+void InkHUD::T5SystemLayer::onForegroundChanged()
+{
+    reconcile();
+}
+
 // The info slot and both of its clocks. Clearing one and forgetting the others is how a surface comes
 // back from the dead a minute later.
 void InkHUD::T5SystemLayer::clearInfo()

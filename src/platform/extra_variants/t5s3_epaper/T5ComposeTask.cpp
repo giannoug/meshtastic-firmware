@@ -122,6 +122,8 @@ void InkHUD::T5ComposeTask::reconcile()
         bringToForeground();
     else
         sendToBackground();
+    if (T5SystemLayer *layer = T5SystemLayer::getIfBegun())
+        layer->onForegroundChanged(); // Opening holds banners back; closing may reveal them
 }
 
 void InkHUD::T5ComposeTask::openPicker()

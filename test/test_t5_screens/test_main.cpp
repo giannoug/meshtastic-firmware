@@ -243,10 +243,12 @@ static bool tapLabel(const char *label)
     return true;
 }
 
+// Leaving messaging reveals any banner held while it was in front: dismiss it before tapping the screen
 static void menuPage(const char *section)
 {
     resetUi();
     InkHUD::T5MenuApplet::open();
+    dismissBanner();
     tapLabel(section);
 }
 
@@ -254,6 +256,7 @@ static void appsTool(const char *tool)
 {
     resetUi();
     show("Apps");
+    dismissBanner();
     tapLabel(tool);
 }
 
@@ -883,6 +886,40 @@ static void test_typing_stays_fast_and_owes_one_full()
     resetUi();
 }
 
+// T5SystemLayer::onForegroundChanged(), called from T5Applet::onForeground() and T5ComposeTask::reconcile().
+// Messages that arrive while a messaging screen is in front are held, not drawn. Leaving messaging makes
+// T5SystemLayer::coversContent() true at once, and every T5 screen hands its taps to the layer from then on.
+// The layer only took input (handleInput) and drew the banner at its next one-second tick, so a tap in that
+// gap reached nobody and fell through to the stock button fallback: the menu's ABOUT row went Home instead.
+// Pinned: the banner is drawn in the frame that shows the new screen, the layer claims input whenever it
+// says it covers content, and a tap there never lands on Home.
+static void test_banner_held_for_messaging_shows_when_leaving_it()
+{
+    t5SetMode(T5Mode::CARRY);
+    resetUi();
+    dismissBootScreens();
+    InkHUD::T5ComposeTask::openReply(Convo::forPeer(KB7X));
+    renderNow();
+    resetUi();       // Home out of the composer, into the conversation
+    seedCanonical(); // Traffic arrives while messaging is in front: held
+
+    InkHUD::T5MenuApplet::open();
+    InkHUD::T5SystemLayer *layer = InkHUD::T5SystemLayer::get();
+    TEST_ASSERT_TRUE(layer->coversContent());
+    TEST_ASSERT_TRUE(layer->handleInput);
+    drawLogStart();
+    renderNow();
+    drawLogStop();
+    bool bannerDrawn = false;
+    for (const DrawRec &r : drawLog())
+        bannerDrawn |= r.owner == "T5SystemLayer" && r.kind == DrawRec::TEXT;
+    TEST_ASSERT_TRUE(bannerDrawn);
+
+    tapLabel("ABOUT");
+    TEST_ASSERT_TRUE(InkHUD::T5MenuApplet::isOpen());
+    resetUi();
+}
+
 static void test_messy_screens()
 {
     dataset = "messy";
@@ -909,8 +946,9 @@ void setup()
     RUN_TEST(test_messy_screens);
     RUN_TEST(test_mode_cells_hit_what_they_draw);
     RUN_TEST(test_pairing_pin_picker_writes_the_mode_not_the_pin);
-    RUN_TEST(test_menu_rules_follow_the_frozen_frames);
+    RUN_TEST(test_banner_held_for_messaging_shows_when_leaving_it);
     RUN_TEST(test_typing_stays_fast_and_owes_one_full);
+    RUN_TEST(test_menu_rules_follow_the_frozen_frames);
     RUN_TEST(test_terminal_screens);
 #endif
     exit(UNITY_END());
